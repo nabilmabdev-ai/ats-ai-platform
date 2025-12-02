@@ -1,0 +1,342 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  RECRUITER
+  MANAGER
+  INTERVIEWER
+}
+
+enum JobPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum JobStatus {
+  DRAFT
+  PENDING_APPROVAL
+  PUBLISHED
+  CLOSED
+  ARCHIVED
+}
+
+enum AppStatus {
+  APPLIED
+  SCREENING
+  INTERVIEW
+  OFFER
+  HIRED
+  REJECTED
+}
+
+enum InterviewStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+enum ScorecardType {
+  HUMAN
+  AI
+}
+
+enum RemoteType {
+  ONSITE
+  HYBRID
+  REMOTE
+}
+
+model User {
+  id           String  @id @default(uuid())
+  email        String  @unique
+  passwordHash String
+  fullName     String?
+  role         Role
+
+  availability Json?
+
+  createdAt DateTime @default(now())
+
+  jobsManaged  Job[]       @relation("HiringManager")
+  jobsApproved Job[]       @relation("JobApprover")
+  interviews   Interview[]
+  comments     Comment[]
+  offers       Offer[]
+  
+  // --- NEW: Applications Owned ---
+  appsOwned    Application[] @relation("AppOwner")
+}
+
+model JobWorkflowTemplate {
+  id        String  @id @default(uuid())
+  name      String
+  region    String?
+  jobFamily String?
+
+  defaultStages Json
+  automations   Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  jobs Job[]
+}
+
+model ScreeningTemplate {
+  id   String @id @default(uuid())
+  name String
+
+  requiredSkills     Json?
+  niceToHaves        Json?
+  scoringWeights     Json?
+  interviewQuestions Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  jobs Job[]
+  jobTemplates JobTemplate[]
+}
+
+model LegalTemplate {
+  id       String @id @default(uuid())
+  region   String
+  language String
+  content  String @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model JobTemplate {
+  id        String @id @default(uuid())
+  name      String
+  structure String @db.Text
+  structureJson Json?
+
+  defaultDepartment String?
+  defaultLocation   String?
+  defaultRemoteType RemoteType?
+
+  // --- NEW: Link to Screening Template ---
+  defaultScreeningTemplateId String?
+  defaultScreeningTemplate   ScreeningTemplate? @relation(fields: [defaultScreeningTemplateId], references: [id])
+
+  // --- NEW: AI Tone Override ---
+  aiTone String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  jobs Job[]
+}
+
+model Job {
+  id         String    @id @default(uuid())
+  title      String
+  department String?
+  status     JobStatus @default(DRAFT)
+
+  priority       JobPriority @default(MEDIUM)
+  remoteType     RemoteType  @default(HYBRID)
+  headcount      Int         @default(1)
+  location       String?
+  region         String?
+  targetHireDate DateTime?
+
+  descriptionText String? @db.Text
+  descriptionHtml String? @db.Text
+  requirements    Json?
+  salaryMin       Int?
+  salaryMax       Int?
+
+  approvedAt   DateTime?
+  approvedById String?
+  approvedBy   User?     @relation("JobApprover", fields: [approvedById], references: [id])
+  distribution Json?
+
+  knockoutQuestions Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  hiringManagerId String?
+  hiringManager   User?   @relation("HiringManager", fields: [hiringManagerId], references: [id])
+
+  templateId String?
+  template   JobTemplate? @relation(fields: [templateId], references: [id])
+
+  workflowTemplateId String?
+  workflowTemplate   JobWorkflowTemplate? @relation(fields: [workflowTemplateId], references: [id])
+
+  screeningTemplateId String?
+  screeningTemplate   ScreeningTemplate? @relation(fields: [screeningTemplateId], references: [id])
+
+  applications Application[]
+}
+
+model Candidate {
+  id          String  @id @default(uuid())
+  email       String  @unique
+  phone       String?
+  firstName   String?
+  lastName    String?
+  resumeS3Key String?
+  linkedinUrl String?
+  consentGdpr Boolean @default(false)
+
+  location     String?
+  education    String?
+  experience   Int?     @default(0)
+  resumeText   String?  @db.Text
+  lastActiveAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  applications Application[]
+}
+
+model Application {
+  id     String    @id @default(uuid())
+  status AppStatus @default(APPLIED)
+
+  aiParsingData Json?
+  aiScore       Float?
+  aiSummary     String? @db.Text
+
+  knockoutAnswers Json?
+  isAutoRejected  Boolean @default(false)
+  aiParsingError  Boolean @default(false)
+
+  // --- NEW: Tags & Ownership ---
+  tags      String[]  @default([])
+  ownerId   String?
+  owner     User?     @relation("AppOwner", fields: [ownerId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  jobId       String
+  job         Job         @relation(fields: [jobId], references: [id])
+  candidateId String
+  candidate   Candidate   @relation(fields: [candidateId], references: [id])
+  interviews  Interview[]
+  comments    Comment[]
+  offer       Offer?
+
+  @@unique([jobId, candidateId])
+}
+
+model Interview {
+  id String @id @default(uuid())
+
+  bookingToken String?         @unique @default(uuid())
+  status       InterviewStatus @default(PENDING)
+
+  scheduledAt   DateTime?
+  transcriptKey String?
+
+  aiNotes   String? @db.Text
+  scorecard Json?
+
+  humanNotes     String? @db.Text
+  humanScorecard Json?
+  scorecardType  ScorecardType?
+
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id])
+  interviewerId String
+  interviewer   User        @relation(fields: [interviewerId], references: [id])
+
+  // Workaround for partial unique index: only set this when status is CONFIRMED
+  confirmedSlot DateTime?
+  @@unique([interviewerId, confirmedSlot])
+}
+
+model Comment {
+  id        String   @id @default(uuid())
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id])
+
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id])
+}
+
+model Offer {
+  id          String      @id @default(uuid())
+  status      OfferStatus @default(DRAFT)
+  salary      Float
+  currency    String
+  equity      String?
+  startDate   DateTime
+  offerLetter String      @db.Text
+  createdAt   DateTime    @default(now())
+
+  applicationId String      @unique
+  application   Application @relation(fields: [applicationId], references: [id])
+
+  createdById String
+  createdBy   User   @relation(fields: [createdById], references: [id])
+
+  // New Fields for E-Sign
+  eSignProviderId   String?      // ID returned by DocuSign/HelloSign
+  eSignStatus       ESignStatus? // SENT, VIEWED, SIGNED, DECLINED
+  signedDocumentUrl String?      // Path to the final PDF
+  generatedOfferUrl String?      // Path to the generated, unsigned PDF
+
+  // Relation to the template used
+  templateId        String?
+  template          DocumentTemplate? @relation(fields: [templateId], references: [id])
+}
+
+enum OfferStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  DECLINED
+}
+
+enum ESignStatus {
+  SENT
+  VIEWED
+  SIGNED
+  DECLINED
+}
+
+model DocumentTemplate {
+  id        String   @id @default(uuid())
+  name      String
+  content   String   @db.Text
+  type      String // OFFER, NDA, CONTRACT
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  offers Offer[]
+}
+
+model Company {
+  id              String   @id @default(uuid())
+  name            String
+  logoUrl         String?
+  address         String?
+  careerPageUrl   String?
+  defaultTimezone String?
+  aiTone          String?
+  description     String?  @db.Text
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
