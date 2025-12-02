@@ -1,0 +1,280 @@
+
+
+@import "tailwindcss";
+
+/* 
+  VISUAL IDENTITY: HT Pastel Soft UI (Official Choice)
+  Style: Rounded, Pastel, Friendly HR, Simple, Warm
+*/
+
+@theme {
+  --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* --- COLOR PALETTE (Fixed) --- */
+
+  /* Primary */
+  --color-primary: #FF6F91;
+  /* HT Pink */
+  --color-primary-hover: #E85D7F;
+  /* Darken 8% */
+
+  /* Secondary */
+  --color-secondary-mint: #A7F0BA;
+  /* HT Mint */
+  --color-secondary-blue: #7EC8E3;
+  /* HT Soft Blue */
+  --color-secondary-lilac: #C8B5F4;
+  /* HT Lilac */
+
+  /* Neutrals */
+  --color-background: #F7F7FA;
+  --color-card: #FFFFFF;
+  --color-border: #E5E4EC;
+  --color-text-dark: #1E1E2D;
+  --color-text-soft: #5F6275;
+
+  /* Semantic Mappings */
+  --color-neutral-50: #F7F7FA;
+  --color-neutral-100: #F0F0F5;
+  --color-neutral-200: #E5E4EC;
+  --color-neutral-300: #D1D1DB;
+  --color-neutral-400: #9A9AB0;
+  --color-neutral-500: #5F6275;
+  --color-neutral-600: #4A4D5E;
+  --color-neutral-700: #323442;
+  --color-neutral-800: #1E1E2D;
+  --color-neutral-900: #13131F;
+  --color-gunmetal: #2D3748;
+
+  --color-success: #A7F0BA;
+  --color-success-text: #2D5C3B;
+  --color-info: #7EC8E3;
+  --color-info-text: #2B5464;
+  --color-warning: #FFE082;
+  /* Soft Yellow */
+  --color-warning-text: #664D00;
+  --color-error: #FFB3B3;
+  /* Soft Red */
+  --color-error-text: #7A2E2E;
+
+  /* --- TYPOGRAPHY (Inter) --- */
+  --text-xs: 0.75rem;
+  /* 12px */
+  --text-sm: 0.875rem;
+  /* 14px */
+  --text-base: 1rem;
+  /* 16px */
+  --text-lg: 1.125rem;
+  /* 18px */
+  --text-xl: 1.25rem;
+  /* 20px */
+  --text-2xl: 1.5rem;
+  /* 24px */
+  --text-3xl: 1.875rem;
+  /* 30px */
+  --text-4xl: 2.25rem;
+  /* 36px */
+  --text-5xl: 3rem;
+  /* 48px */
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  /* --- SPACING (Fixed Scale) --- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+
+  /* Legacy Spacing Mappings */
+  --spacing-1: var(--space-1);
+  --spacing-2: var(--space-2);
+  --spacing-3: var(--space-3);
+  --spacing-4: var(--space-4);
+  --spacing-5: var(--space-5);
+  --spacing-6: var(--space-6);
+  --spacing-8: var(--space-8);
+
+  /* --- UI TOKENS --- */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  /* Global Standard */
+  --radius-lg: 12px;
+  /* Global Standard */
+  --radius-xl: 20px;
+  /* Modals */
+  --radius-full: 9999px;
+
+  --shadow-soft: 0 4px 20px rgba(0, 0, 0, 0.03);
+  --shadow-hover: 0 8px 30px rgba(0, 0, 0, 0.06);
+  --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.08);
+  --shadow-glow: 0 0 15px rgba(255, 111, 145, 0.3);
+
+  /* Legacy Shadow Mappings */
+  --shadow-xs: var(--shadow-soft);
+  --shadow-sm: var(--shadow-soft);
+  --shadow-md: var(--shadow-soft);
+  --shadow-lg: var(--shadow-hover);
+}
+
+/* 
+  Base Reset & Global Styles 
+*/
+:root {
+  --background: var(--color-background);
+  --foreground: var(--color-text-dark);
+  --card-bg: var(--color-card);
+}
+
+html,
+body {
+  height: 100%;
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 
+  Component Utility Classes 
+*/
+
+@layer components {
+
+  /* --- BUTTONS --- */
+  .btn-primary {
+    @apply bg-[var(--color-primary)] text-white font-medium px-[var(--space-4)] py-[var(--space-2)] rounded-[var(--radius-md)] shadow-[var(--shadow-soft)] transition-all duration-150 ease-out;
+    @apply hover:bg-[var(--color-primary-hover)] hover:scale-[1.02];
+    @apply active:scale-[0.98];
+    @apply disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100;
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] focus-visible:ring-offset-2;
+  }
+
+  .btn-secondary {
+    @apply bg-white text-[var(--color-text-soft)] font-medium px-[var(--space-4)] py-[var(--space-2)] rounded-[var(--radius-md)] border border-[var(--color-border)] shadow-[var(--shadow-soft)] transition-all duration-150 ease-out;
+    @apply hover:bg-[var(--color-neutral-50)] hover:text-[var(--color-text-dark)] hover:border-[var(--color-neutral-300)];
+    @apply active:scale-[0.98];
+  }
+
+  .btn-ghost {
+    @apply text-[var(--color-text-soft)] font-medium px-[var(--space-3)] py-[var(--space-2)] rounded-[var(--radius-md)] hover:bg-[var(--color-neutral-100)] hover:text-[var(--color-text-dark)] transition-colors;
+  }
+
+  /* --- CARDS --- */
+  .card {
+    @apply bg-[var(--color-card)] border border-[var(--color-border)] shadow-[var(--shadow-soft)] rounded-[var(--radius-md)];
+  }
+
+  .glass-card {
+    @apply bg-white border border-[var(--color-border)] shadow-[var(--shadow-soft)] rounded-[var(--radius-md)] transition-all duration-150 ease-out;
+    @apply hover:shadow-[var(--shadow-hover)] hover:scale-[1.01];
+  }
+
+  /* --- INPUTS --- */
+  .input-base {
+    @apply w-full border border-[var(--color-border)] rounded-[var(--radius-md)] px-[var(--space-4)] py-[var(--space-2)] text-sm text-[var(--color-text-dark)] bg-white transition-all duration-150 ease-out placeholder:text-[var(--color-neutral-400)];
+    @apply focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20;
+    @apply disabled:bg-[var(--color-neutral-50)] disabled:cursor-not-allowed;
+  }
+
+  /* --- TAGS --- */
+  .tag {
+    @apply px-3 py-1 rounded-full text-xs font-semibold tracking-wide uppercase inline-flex items-center justify-center;
+  }
+
+  .tag-primary {
+    @apply bg-[var(--color-primary)]/10 text-[var(--color-primary)];
+  }
+
+  .tag-mint {
+    @apply bg-[var(--color-secondary-mint)]/20 text-[var(--color-success-text)];
+  }
+
+  .tag-blue {
+    @apply bg-[var(--color-secondary-blue)]/20 text-[var(--color-info-text)];
+  }
+
+  .tag-lilac {
+    @apply bg-[var(--color-secondary-lilac)]/20 text-[#5D3A9B];
+  }
+
+  .tag-neutral {
+    @apply bg-[var(--color-neutral-100)] text-[var(--color-text-soft)];
+  }
+
+  /* --- MODALS --- */
+  .modal-content {
+    @apply bg-white rounded-[var(--radius-xl)] shadow-[var(--shadow-modal)] p-[var(--space-6)];
+    animation: modalSlideUp 0.18s ease-out forwards;
+  }
+
+  /* --- TYPOGRAPHY UTILS --- */
+  .text-h1 {
+    @apply text-[length:var(--text-4xl)] font-medium text-[var(--color-text-dark)];
+  }
+
+  .text-h2 {
+    @apply text-[length:var(--text-3xl)] font-medium text-[var(--color-text-dark)];
+  }
+
+  .text-h3 {
+    @apply text-[length:var(--text-2xl)] font-medium text-[var(--color-text-dark)];
+  }
+
+  .text-body {
+    @apply text-[length:var(--text-base)] font-normal text-[var(--color-text-soft)];
+  }
+
+  .text-label {
+    @apply text-[length:var(--text-sm)] font-semibold text-[var(--color-text-soft)];
+  }
+
+}
+
+/* 
+  Animations 
+*/
+@keyframes modalSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-modal-in {
+  animation: modalSlideUp 0.18s ease-out forwards;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-neutral-200);
+  border-radius: 99px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-neutral-300);
+}

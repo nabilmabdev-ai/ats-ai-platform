@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Guide: Managing Closed & Archived Jobs</title>
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --text-color: #1f2937;
+            --bg-color: #f9fafb;
+            --card-bg: #ffffff;
+            --border-color: #e5e7eb;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 0 20px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: #111827;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: 1.1rem;
+            color: #6b7280;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            padding: 30px;
+            margin-bottom: 30px;
+            border: 1px solid var(--border-color);
+        }
+
+        h2 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #374151;
+            margin-top: 0;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #f3f4f6;
+            padding-bottom: 10px;
+        }
+
+        h3 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #4b5563;
+            margin-top: 25px;
+            margin-bottom: 10px;
+        }
+
+        p {
+            margin-bottom: 15px;
+        }
+
+        ul {
+            margin-bottom: 20px;
+            padding-left: 20px;
+        }
+
+        li {
+            margin-bottom: 8px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+
+        .badge-closed {
+            background-color: #fffbeb;
+            color: #d97706;
+            border: 1px solid #fcd34d;
+        }
+
+        .highlight {
+            background-color: #eff6ff;
+            border-left: 4px solid var(--primary-color);
+            padding: 15px;
+            border-radius: 0 4px 4px 0;
+            margin: 20px 0;
+        }
+
+        .step-number {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            background-color: var(--primary-color);
+            color: white;
+            border-radius: 50%;
+            font-size: 0.85rem;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+
+        img {
+            max-width: 100%;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            margin: 20px 0;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 60px;
+            color: #9ca3af;
+            font-size: 0.9rem;
+            padding-bottom: 40px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <header>
+            <h1>Closed & Archived Jobs</h1>
+            <p class="subtitle">A guide to managing your historical hiring data</p>
+        </header>
+
+        <div class="card">
+            <h2>Overview</h2>
+            <p>
+                As your hiring needs evolve, you will naturally close roles that have been filled or put on hold. 
+                Our platform now handles <strong>Closed</strong> and <strong>Archived</strong> jobs intelligently to keep your workspace clean while preserving important data.
+            </p>
+            <div class="highlight">
+                <strong>Key Benefit:</strong> By default, the Global Pipeline is clutter-free, showing only active applications. However, you can easily access historical data whenever needed.
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Global Pipeline View</h2>
+            <p>When viewing "All Jobs" on your dashboard:</p>
+            
+            <h3>Default Behavior</h3>
+            <p>Applications associated with <strong>Closed</strong> or <strong>Archived</strong> jobs are <strong>hidden</strong>. This ensures your Kanban board reflects only your current workload.</p>
+
+            <h3>Viewing Closed Jobs</h3>
+            <p>To see applications from past jobs:</p>
+            <ol>
+                <li>Locate the toggle button in the dashboard header (next to "Show Rejected").</li>
+                <li>Click <strong>"Show Closed Jobs"</strong>.</li>
+                <li>The board will refresh to include applications from closed jobs.</li>
+                <li>The button will turn amber to indicate that historical data is being shown.</li>
+            </ol>
+        </div>
+
+        <div class="card">
+            <h2>Per-Job Pipeline View</h2>
+            <p>When you select a specific job from the dropdown menu:</p>
+
+            <h3>Identifying Closed Jobs</h3>
+            <p>In the Job Selector dropdown, closed jobs are clearly marked with a <span class="badge badge-closed">CLOSED</span> or <span class="badge badge-closed">ARCHIVED</span> badge.</p>
+
+            <h3>Read-Only Mode</h3>
+            <p>If you select a closed job, the pipeline enters <strong>Read-Only Mode</strong>:</p>
+            <ul>
+                <li>A banner appears at the top: <em>"This job is CLOSED. The pipeline is read-only."</em></li>
+                <li><strong>Drag-and-Drop is disabled:</strong> You cannot move candidates between stages.</li>
+                <li><strong>Candidate Access:</strong> You can still click on candidate cards to view their profiles, resumes, and notes.</li>
+            </ul>
+            <p>This prevents accidental changes to historical records while keeping the information accessible for future reference or compliance.</p>
+        </div>
+
+        <div class="card">
+            <h2>FAQ</h2>
+            <h3>Can I still hire a candidate from a closed job?</h3>
+            <p>Technically, the pipeline is frozen. To move a candidate, you should either reopen the job (change status to Published) or add the candidate to a new, active job.</p>
+
+            <h3>Where do the candidates go?</h3>
+            <p>Candidates remain in the system forever (unless deleted for GDPR). You can always find them in the <strong>Talent Pool</strong> or by searching for them directly, regardless of the job status.</p>
+        </div>
+
+        <footer>
+            &copy; 2025 ATS AI Platform. All rights reserved.
+        </footer>
+    </div>
+
+</body>
+</html>

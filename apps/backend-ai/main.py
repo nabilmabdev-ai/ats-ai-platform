@@ -104,11 +104,32 @@ def get_milvus_connection():
     global candidate_collection
     return candidate_collection
 
+def clean_and_parse_json(text: str):
+    try:
+        # Remove markdown code blocks
+        text = re.sub(r'^```json\s*', '', text, flags=re.MULTILINE)
+        text = re.sub(r'^```\s*', '', text, flags=re.MULTILINE)
+        text = re.sub(r'\s*```$', '', text, flags=re.MULTILINE)
+        return json.loads(text)
+    except json.JSONDecodeError:
+        # Fallback: try to find the first '{' and last '}'
+        start = text.find('{')
+        end = text.rfind('}')
+        if start != -1 and end != -1:
+            try:
+                return json.loads(text[start:end+1])
+            except:
+                pass
+        logger.error(f"Failed to parse JSON: {text}")
+        raise HTTPException(status_code=500, detail="Failed to parse AI response")
+
 # --- DTOs for Requests ---
 class JobGenRequest(BaseModel):
     title: str
     notes: Optional[str] = ""
     template_mode: Optional[bool] = False
+    tone: Optional[str] = "Professional"
+    company_description: Optional[str] = ""
 
 class VectorizeRequest(BaseModel):
     candidate_id: str
@@ -144,83 +165,44 @@ class InterviewAnalysisRequest(BaseModel):
 
 class ScreeningRequest(BaseModel):
     resume_text: str
-    criteria: Dict[str, Any] # Contains requiredSkills, niceToHaves, scoringWeights
+    criteria: Dict[str, Any]
+    job_description: Optional[str] = ""
+
+class ScorecardGenRequest(BaseModel):
+    role_title: str
 
 class SectionGenRequest(BaseModel):
     job_title: str
-    section_type: str # 'SUMMARY', 'RESPONSIBILITIES', 'REQUIREMENTS'
-    context: Optional[str] = ""
+    section_type: str
+    context: str
+    tone: Optional[str] = "Professional"
+    skills: Optional[List[str]] = []
 
-# --- Structured Output Schemas (Pydantic) ---
-
+# --- Response Schemas ---
 class ScreeningResponse(BaseModel):
-    score: int = Field(description="Match score from 0 to 100")
-    summary: str = Field(description="Summary justifying the score")
-    missing_critical: List[str] = Field(description="List of missing critical skills")
-    matched_nice_to_have: List[str] = Field(description="List of matched nice-to-have skills")
-    recommendation: str = Field(description="Recommendation: 'Proceed to Interview', 'Reject', or 'Hold'")
-
-class SalaryRange(BaseModel):
-    min: int
-    max: int
-
-class JobDescriptionResponse(BaseModel):
-    description: str = Field(description="Full markdown job description (for non-template mode)")
-    summary: str = Field(description="Brief summary (for template mode)")
-    responsibilities: List[str] = Field(description="List of responsibilities (for template mode)")
-    requirements: List[str] = Field(description="List of required skills/qualifications")
-    salary_range: SalaryRange = Field(description="Salary range")
+    match_score: int
+    red_flags: List[str]
+    missing_critical_skills: List[str]
+    screening_summary: str
 
 class CVParseResponse(BaseModel):
-    skills: List[str] = Field(description="List of extracted skills")
-    experience_years: int = Field(description="Total years of experience")
-    education_level: str = Field(description="Highest education level")
-    location: str = Field(description="Inferred location")
-    summary: str = Field(description="Professional summary")
+    skills: List[str]
+    summary: str
+    experience_years: int
+    education_level: str
 
 class RejectionEmailResponse(BaseModel):
-    subject: str = Field(description="Email subject line")
-    body: str = Field(description="Email body text")
+    subject: str
+    body: str
 
 class InterviewAnalysisResponse(BaseModel):
-    rating: int = Field(description="Rating from 1 to 10")
-    pros: List[str] = Field(description="List of positive points")
-    cons: List[str] = Field(description="List of concerns or negative points")
-    skills_assessment: Dict[str, str] = Field(description="Assessment of specific skills (e.g., 'Demonstrated', 'Missing')")
-    summary: str = Field(description="Overall summary of the interview performance")
+    rating: int
+    pros: List[str]
+    cons: List[str]
+    summary: str
 
-class JobTemplate(BaseModel):
-    id: str
-    name: str
-    structure: str
-    defaultScreeningTemplateId: Optional[str] = None
+# ...
 
-@app.get("/templates/job")
-def get_job_templates():
-    return [
-        {"id": "tech-1", "name": "Software Engineer", "structure": "Role, Tech Stack, Requirements, Benefits"},
-        {"id": "sales-1", "name": "Sales Representative", "structure": "About Us, The Opportunity, What You Bring, Perks"},
-        {"id": "exec-1", "name": "Leadership / Executive", "structure": "Vision, Strategic Goals, Qualifications, Compensation"},
-    ]
-
-@app.get("/")
-def read_root():
-    db_status = "Connected" if get_milvus_connection() else "Disconnected"
-    return {"status": "AI Service Online", "milvus": db_status}
-
-def clean_and_parse_json(text: str):
-    """
-    Sanitizes LLM output by removing markdown code blocks before parsing.
-    """
-    # Remove markdown code blocks if present
-    # Regex to match ```json ... ``` or ``` ... ```
-    match = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
-    if match:
-        text = match.group(1)
-    
-    return json.loads(text.strip())
-
-# --- NEW: Intelligent Screening Endpoint ---
 @app.post("/screen-candidate")
 def screen_candidate(request: ScreeningRequest):
     try:
@@ -234,6 +216,9 @@ def screen_candidate(request: ScreeningRequest):
         prompt = f"""
         Act as a strict Technical Recruiter. Evaluate this resume against specific criteria.
         
+        JOB DESCRIPTION CONTEXT:
+        {request.job_description[:5000]}
+
         RESUME TEXT:
         {request.resume_text[:100000]}
         
@@ -276,12 +261,20 @@ def generate_template_section(request: SectionGenRequest):
         
         instruction = section_map.get(request.section_type, "Write content for this section.")
         
+        # Build skills instruction if provided
+        skills_instruction = ""
+        if request.skills:
+            skills_list = ", ".join(request.skills)
+            skills_instruction = f"CRITICAL: You MUST include the following required skills in the text: {skills_list}."
+
         prompt = f"""
         Act as a Senior Recruiter.
         JOB TITLE: {request.job_title}
+        TONE: {request.tone}
         CONTEXT: {request.context}
         
         TASK: {instruction}
+        {skills_instruction}
         
         Output ONLY the content (no markdown headers like ##).
         """
@@ -293,25 +286,102 @@ def generate_template_section(request: SectionGenRequest):
         logger.error(f"Section Gen Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# --- NEW: Generate Scorecard Endpoint ---
+@app.post("/generate-scorecard")
+def generate_scorecard(request: ScorecardGenRequest):
+    logger.info(f"Received scorecard generation request for: {request.role_title}")
+    try:
+        # NOTE: The user's instructions specified 'gemini-2.5-pro' but the existing code uses 'gemini-pro'.
+        # I will use 'gemini-2.5-pro' as requested in the plan.
+        model = genai.GenerativeModel('gemini-2.5-pro')
+        
+        prompt = f"""
+        Act as a Hiring Manager. Create a screening scorecard for the role: "{request.role_title}".
+        
+        OUTPUT FORMAT (JSON):
+        {{
+            "requiredSkills": ["List", "of", "5", "hard", "skills"],
+            "niceToHaves": ["List", "of", "3", "bonus", "skills"],
+            "scoringWeights": {{
+                "skills_match": 0.6,
+                "experience_years": 0.3,
+                "education_level": 0.1
+            }}
+        }}
+        
+        INSTRUCTIONS:
+        1. Weights MUST sum exactly to 1.0.
+        2. Use standard keys for weights if possible (skills_match, experience_years, education_level, culture_fit), but you can invent others if critical for the role.
+        """
+        
+        logger.info("Sending prompt to Gemini...")
+        response = model.generate_content(
+            prompt,
+            generation_config=genai.GenerationConfig(
+                response_mime_type="application/json"
+            )
+        )
+        logger.info("Received response from Gemini.")
+        logger.info(f"Raw response text: {response.text[:100]}...")
+        
+        return clean_and_parse_json(response.text)
+        
+    except Exception as e:
+        logger.error(f"Scorecard Gen Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/generate-job-description")
 def generate_job_desc(request: JobGenRequest):
     try:
         model = genai.GenerativeModel('gemini-2.5-pro') 
         
+        # Explicit JSON instruction to replace schema
+        json_structure = """
+        Output strictly valid JSON with this structure:
+        {
+            "description": "Full markdown job description (or empty string)",
+            "summary": "Brief summary",
+            "responsibilities": ["list", "of", "strings"],
+            "requirements": ["list", "of", "strings"],
+            "salary_range": {"min": 1000, "max": 2000}
+        }
+        """
+
         if request.template_mode:
             prompt = f"""
             Act as a Senior Technical Recruiter. 
             Extract specific job details for a template. Do NOT write a full job description text.
             
             JOB TITLE: {request.title}
+            TONE: {request.tone}
             HIRING NOTES: "{request.notes}"
+            COMPANY CONTEXT: "{request.company_description}"
+
+            INSTRUCTIONS:
+            - Populate 'summary' with a brief role overview.
+            - Populate 'responsibilities' with a list of key duties.
+            - Populate 'requirements' with a list of skills.
+            - Populate 'salary_range' with an estimated range.
+            - Leave 'description' empty as we are in template mode.
+            
+            {json_structure}
             """
         else:
             prompt = f"""
             Act as a Senior Technical Recruiter. Create a structured job posting.
             
             JOB TITLE: {request.title}
+            TONE: {request.tone}
             HIRING NOTES: "{request.notes}"
+            COMPANY CONTEXT: "{request.company_description}"
+
+            INSTRUCTIONS:
+            - Write a full markdown job description in the 'description' field.
+            - Also extract 'requirements' and 'salary_range' into their respective fields.
+            - You can leave 'summary' and 'responsibilities' empty if the full description covers it.
+            
+            {json_structure}
             """
             
         logger.info(f"Generating job description for: {request.title}")

@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Templates Guide - ATS.ai</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --text-dark: #1f2937;
+            --text-light: #6b7280;
+            --bg-light: #f9fafb;
+            --border: #e5e7eb;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: var(--text-dark);
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            background-color: #fff;
+        }
+        h1, h2, h3 {
+            color: #111827;
+            margin-top: 2em;
+        }
+        h1 { font-size: 2.5rem; border-bottom: 2px solid var(--border); padding-bottom: 0.5em; margin-top: 0; }
+        h2 { font-size: 1.75rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+        h3 { font-size: 1.25rem; font-weight: 600; }
+        
+        a { color: var(--primary); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        
+        .nav {
+            background: var(--bg-light);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 40px;
+            border: 1px solid var(--border);
+        }
+        .nav ul { list-style: none; padding: 0; margin: 0; display: flex; gap: 20px; flex-wrap: wrap; }
+        .nav li a { font-weight: 600; color: var(--text-dark); }
+        .nav li a:hover { color: var(--primary); }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .card {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            background: var(--bg-light);
+        }
+        .card h3 { margin-top: 0; }
+
+        code {
+            background: #f3f4f6;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.9em;
+            color: #c2410c;
+        }
+
+        .tip {
+            background: #eff6ff;
+            border-left: 4px solid var(--primary);
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 0 4px 4px 0;
+        }
+
+        .icon { display: inline-block; vertical-align: middle; margin-right: 5px; }
+    </style>
+</head>
+<body>
+
+    <h1>Document Templates Guide</h1>
+    <p class="lead">Welcome to the central hub for managing all your reusable documents in ATS.ai. This guide will help you create, edit, and manage templates for jobs, offers, and candidate screenings.</p>
+
+    <div class="nav">
+        <ul>
+            <li><a href="#overview">Overview</a></li>
+            <li><a href="#managing">Managing Templates</a></li>
+            <li><a href="#offer-builder">Offer Builder</a></li>
+            <li><a href="#job-builder">Job Builder</a></li>
+        </ul>
+    </div>
+
+    <section id="overview">
+        <h2>1. Overview</h2>
+        <p>The <strong>Document Library</strong> allows you to standardize your hiring process by creating reusable templates. Instead of writing every job description or offer letter from scratch, you can build a library of approved content.</p>
+        
+        <div class="feature-grid">
+            <div class="card">
+                <h3>📄 Job Templates</h3>
+                <p>Standardized structures for job postings. Define sections like "Responsibilities", "Requirements", and "Benefits" once and reuse them.</p>
+            </div>
+            <div class="card">
+                <h3>✉️ Offer Templates</h3>
+                <p>Dynamic offer letters with variables (e.g., <code>{{salary}}</code>) that automatically populate with candidate data.</p>
+            </div>
+            <div class="card">
+                <h3>📋 Screening Templates</h3>
+                <p>Sets of screening questions to ask candidates during the initial application or phone screen.</p>
+            </div>
+        </div>
+    </section>
+
+    <section id="managing">
+        <h2>2. Managing Templates</h2>
+        <p>The main dashboard (<code>/settings/templates</code>) gives you a bird's-eye view of your document library.</p>
+
+        <h3>Creating a New Template</h3>
+        <ol>
+            <li>Click the large <strong>"New Template"</strong> card with the plus icon.</li>
+            <li>A modal will appear asking for details:
+                <ul>
+                    <li><strong>Name</strong>: Give your template a clear, descriptive name (e.g., "Engineering Offer 2024").</li>
+                    <li><strong>Type</strong>: Select "Job", "Offer", or "Screening".</li>
+                </ul>
+            </li>
+            <li>Click <strong>"Create"</strong>. You will be redirected to the specific editor for that template type.</li>
+        </ol>
+
+        <h3>Editing & Deleting</h3>
+        <ul>
+            <li><strong>Edit</strong>: Simply click on any template card to open it in the editor.</li>
+            <li><strong>Delete</strong>: Hover over a card and click the red <strong>Trash Icon</strong> in the top-left corner. <em>Warning: This action cannot be undone.</em></li>
+        </ul>
+    </section>
+
+    <section id="offer-builder">
+        <h2>3. Offer Template Builder</h2>
+        <p>The Offer Template Builder is a powerful tool for creating professional offer letters. It uses a <strong>block-based</strong> system with <strong>rich text</strong> capabilities.</p>
+
+        <h3>Key Features</h3>
+        <ul>
+            <li><strong>Smart Blocks</strong>: Drag and drop pre-made sections like <em>Opening</em>, <em>Compensation</em>, <em>Legal</em>, and <em>Signature</em> from the left sidebar.</li>
+            <li><strong>Custom Blocks</strong>: Need something unique? Add a "Custom Block" to write your own content.</li>
+            <li><strong>Drag & Drop</strong>: Reorder sections on the canvas by dragging them up or down.</li>
+            <li><strong>Remove Blocks</strong>: Drag a block back to the sidebar (it turns red) or click the trash icon on the block itself to remove it.</li>
+        </ul>
+
+        <h3>Using Variables</h3>
+        <p>Make your templates dynamic using <strong>Variables</strong>. These are placeholders that get replaced with real data when you send an offer.</p>
+        <div class="tip">
+            <strong>How to use:</strong> Place your cursor in the text editor, then click a variable chip (e.g., <code>+ Candidate Name</code>) in the toolbar.
+        </div>
+        <p><strong>Common Variables:</strong></p>
+        <ul>
+            <li><code>{{candidate_name}}</code> - The candidate's full name.</li>
+            <li><code>{{job_title}}</code> - The role they are being hired for.</li>
+            <li><code>{{salary}}</code> - The annual base salary.</li>
+            <li><code>{{start_date}}</code> - Their first day of work.</li>
+        </ul>
+
+        <h3>Previewing</h3>
+        <p>Click the <strong>"Preview Full"</strong> button in the header to see a full-page preview of your offer letter. This generates a realistic view (PDF/Email style) with dummy data, so you can check formatting and layout.</p>
+    </section>
+
+    <section id="job-builder">
+        <h2>4. Job Template Builder</h2>
+        <p>Similar to the Offer Builder, the Job Template Builder helps you structure job descriptions.</p>
+        <ul>
+            <li><strong>AI Assistance</strong>: Use AI blocks to automatically generate "Responsibilities" or "Requirements" based on the job title.</li>
+            <li><strong>Structure</strong>: Define the standard sections every job post should have to ensure consistency across your careers page.</li>
+        </ul>
+    </section>
+
+    <hr>
+    <footer>
+        <p style="text-align: center; color: #6b7280; font-size: 0.9em; margin-top: 40px;">
+            &copy; 2025 ATS.ai Platform Documentation
+        </p>
+    </footer>
+
+</body>
+</html>

@@ -1,0 +1,121 @@
+# ------------------------------------------------------
+# GENERAL / OS / IDE
+# ------------------------------------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+*.log
+
+# ------------------------------------------------------
+# DEPENDENCIES (Node.js)
+# ------------------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+# Keep package-lock.json if you are not using Yarn/PNPM. 
+# If using npm, remove the line above.
+
+# ------------------------------------------------------
+# ENVIRONMENT VARIABLES (CRITICAL SECURITY)
+# ------------------------------------------------------
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+.env.*
+
+# ------------------------------------------------------
+# SECRETS & CREDENTIALS (CRITICAL SECURITY)
+# ------------------------------------------------------
+# Block the specific google credentials file seen in your backend-ai folder
+google-credentials.json
+*credentials.json
+*service-account.json
+*.pem
+*.key
+
+# ------------------------------------------------------
+# FRONTEND (Next.js)
+# ------------------------------------------------------
+.next/
+out/
+build/
+dist/
+.vercel/
+*.tsbuildinfo
+next-env.d.ts
+
+# ------------------------------------------------------
+# BACKEND CORE (NestJS & Prisma)
+# ------------------------------------------------------
+# Compiled output
+apps/backend-core/dist/
+dist/
+
+# Prisma
+/prisma/*.db
+/prisma/*.db-journal
+
+# File Uploads (Don't commit user resumes/PDFs)
+uploads/
+apps/backend-core/uploads/
+**/uploads/*
+!**/uploads/.gitkeep
+
+# ------------------------------------------------------
+# BACKEND AI (Python/FastAPI)
+# ------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+venv/
+.venv/
+env/
+.env/
+
+# Python distribution
+build/
+develop-eggs/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+
+# Milvus/Vector DB local data (if applicable)
+milvus_data/
+
+# ------------------------------------------------------
+# TESTING & COVERAGE
+# ------------------------------------------------------
+coverage/
+.nyc_output/
+.jest/
+test-results/
+
+# ------------------------------------------------------
+# MISC
+# ------------------------------------------------------
+.turbo/
+*.lnk
