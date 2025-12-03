@@ -1,4 +1,13 @@
-import { Controller, Post, Body, Get, Param, Query, ParseIntPipe, ParseDatePipe } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Get,
+  Param,
+  Query,
+  ParseIntPipe,
+  ParseDatePipe,
+} from '@nestjs/common';
 import { InterviewsService } from './interviews.service';
 import { CreateInterviewDto } from './dto/create-interview.dto';
 import { SaveHumanScorecardDto } from './dto/save-human-scorecard.dto';
@@ -6,7 +15,7 @@ import { SaveAiScorecardDto } from './dto/save-ai-scorecard.dto';
 
 @Controller('interviews')
 export class InterviewsController {
-  constructor(private readonly interviewsService: InterviewsService) { }
+  constructor(private readonly interviewsService: InterviewsService) {}
 
   // --- NEW: Get All Interviews (Calendar View) ---
   @Get()
@@ -52,5 +61,9 @@ export class InterviewsController {
     @Body() body: { slot: string },
   ) {
     return this.interviewsService.confirmBooking(token, body.slot);
+  }
+  @Post('generate-questions')
+  generateQuestions(@Body() body: any) {
+    return this.interviewsService.generateQuestions(body);
   }
 }

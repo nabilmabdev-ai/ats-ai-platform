@@ -119,3 +119,5 @@ test-results/
 # ------------------------------------------------------
 .turbo/
 *.lnk
+
+!apps/backend-core/src/uploads/*.ts

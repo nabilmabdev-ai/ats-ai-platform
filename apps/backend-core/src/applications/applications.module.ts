@@ -9,6 +9,7 @@ import { EmailModule } from '../email/email.module';
 import { InterviewsModule } from '../interviews/interviews.module';
 import { BullModule } from '@nestjs/bullmq';
 import { ApplicationsProcessor } from './applications.processor';
+import { SearchModule } from '../search/search.module';
 
 @Module({
   imports: [
@@ -21,8 +22,9 @@ import { ApplicationsProcessor } from './applications.processor';
     MulterModule.register({
       dest: './uploads',
     }),
+    SearchModule,
   ],
   controllers: [ApplicationsController],
   providers: [ApplicationsService, ApplicationsProcessor],
 })
-export class ApplicationsModule { }
+export class ApplicationsModule {}

@@ -26,7 +26,7 @@ export class ApplicationsService {
     private emailService: EmailService,
     private interviewsService: InterviewsService,
     @InjectQueue('applications') private applicationsQueue: Queue,
-  ) { }
+  ) {}
 
   async retryFailedParsings() {
     // 1. Find all applications marked with error
@@ -195,6 +195,7 @@ export class ApplicationsService {
       jobId: string;
       email: string;
       name: string;
+      phone?: string;
       knockoutAnswers?: Record<string, any>; // <--- NEW INPUT
     },
     filePath: string,
@@ -232,8 +233,14 @@ export class ApplicationsService {
             typeof correctToCheck === 'string'
           ) {
             // Normalize: trim, lowercase, and collapse multiple spaces
-            answerToCheck = answerToCheck.trim().toLowerCase().replace(/\s+/g, ' ');
-            correctToCheck = correctToCheck.trim().toLowerCase().replace(/\s+/g, ' ');
+            answerToCheck = answerToCheck
+              .trim()
+              .toLowerCase()
+              .replace(/\s+/g, ' ');
+            correctToCheck = correctToCheck
+              .trim()
+              .toLowerCase()
+              .replace(/\s+/g, ' ');
           }
 
           if (answerToCheck !== correctToCheck) {
@@ -248,26 +255,75 @@ export class ApplicationsService {
       }
     }
 
-    // 2. Create/Update Candidate (Initial)
-    // We don't have AI data yet, so we just use name/email/filePath.
-    const candidate = await this.prisma.candidate.upsert({
+    // 2. Check for Existing Candidate (Exact & Fuzzy)
+    let candidateId: string | null = null;
+
+    // A. Exact Email Match
+    const exactMatch = await this.prisma.candidate.findUnique({
       where: { email: data.email },
-      update: {
-        firstName: data.name.split(' ')[0],
-        lastName: data.name.split(' ')[1] || '',
-        resumeS3Key: filePath,
-        lastActiveAt: new Date(),
-      },
-      create: {
-        email: data.email,
-        firstName: data.name.split(' ')[0],
-        lastName: data.name.split(' ')[1] || '',
-        resumeS3Key: filePath,
-        lastActiveAt: new Date(),
-      },
     });
 
-    // 3. Check Duplicate Application
+    if (exactMatch) {
+      candidateId = exactMatch.id;
+    } else {
+      // B. Fuzzy Match (if enabled)
+      const company = await this.prisma.company.findFirst();
+      if (company?.enableAutoMerge && data.name && data.phone) {
+        // Normalize Phone: remove all non-digits
+        const normalizedInputPhone = data.phone.replace(/\D/g, '');
+        const lastName = data.name.split(' ')[1] || '';
+
+        if (normalizedInputPhone.length > 6 && lastName.length > 2) {
+          const candidates = await this.prisma.candidate.findMany({
+            where: {
+              lastName: { equals: lastName, mode: 'insensitive' },
+            },
+          });
+
+          const match = candidates.find((c) => {
+            if (!c.phone) return false;
+            const p = c.phone.replace(/\D/g, '');
+            return p === normalizedInputPhone;
+          });
+
+          if (match) {
+            console.log(
+              `🔗 Fuzzy Match Found: ${data.email} linked to ${match.email}`,
+            );
+            candidateId = match.id;
+          }
+        }
+      }
+    }
+
+    // 3. Create or Update Candidate
+    let candidate;
+    if (candidateId) {
+      candidate = await this.prisma.candidate.update({
+        where: { id: candidateId },
+        data: {
+          firstName: data.name.split(' ')[0],
+          lastName: data.name.split(' ')[1] || '',
+          resumeS3Key: filePath,
+          lastActiveAt: new Date(),
+          // We do NOT update email if it was a fuzzy match, to preserve the original email.
+          // But if it was an exact match, email is same anyway.
+        },
+      });
+    } else {
+      candidate = await this.prisma.candidate.create({
+        data: {
+          email: data.email,
+          phone: data.phone,
+          firstName: data.name.split(' ')[0],
+          lastName: data.name.split(' ')[1] || '',
+          resumeS3Key: filePath,
+          lastActiveAt: new Date(),
+        },
+      });
+    }
+
+    // 4. Check Duplicate Application
     const existing = await this.prisma.application.findUnique({
       where: {
         jobId_candidateId: { jobId: data.jobId, candidateId: candidate.id },
@@ -276,7 +332,7 @@ export class ApplicationsService {
     if (existing)
       throw new ConflictException('You have already applied for this job.');
 
-    // 4. Create Application
+    // 5. Create Application
     const newApplication = await this.prisma.application.create({
       data: {
         jobId: data.jobId,
@@ -297,7 +353,13 @@ export class ApplicationsService {
     return newApplication;
   }
 
-  async findAll(jobId?: string, period?: string, page: number = 1, limit: number = 10, includeClosed: boolean = false) {
+  async findAll(
+    jobId?: string,
+    period?: string,
+    page: number = 1,
+    limit: number = 10,
+    includeClosed: boolean = false,
+  ) {
     const whereClause: any = {};
     if (jobId) whereClause.jobId = jobId;
 
@@ -308,8 +370,8 @@ export class ApplicationsService {
     if (!includeClosed && !jobId) {
       whereClause.job = {
         status: {
-          notIn: ['CLOSED', 'ARCHIVED']
-        }
+          notIn: ['CLOSED', 'ARCHIVED'],
+        },
       };
     }
 
@@ -427,7 +489,8 @@ export class ApplicationsService {
     if (!app) throw new NotFoundException('Application not found');
 
     try {
-      const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+      const aiServiceUrl =
+        process.env.AI_SERVICE_URL || 'http://localhost:8000';
       const response = await axios.post(
         `${aiServiceUrl}/generate-rejection-email`,
         {

@@ -12,11 +12,13 @@ const getBaseUrl = () => {
   return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 };
 
-const ToggleSwitch = ({ enabled }: { enabled: boolean }) => {
-  const [isEnabled, setIsEnabled] = useState(enabled);
+const ToggleSwitch = ({ enabled, onChange }: { enabled: boolean; onChange?: (val: boolean) => void }) => {
   return (
-    <button onClick={() => setIsEnabled(!isEnabled)} className={`relative inline-flex items-center h-6 rounded-full w-11 transition-colors ${isEnabled ? 'bg-green-500' : 'bg-[var(--color-soft-grey)]'}`}>
-      <span className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform ${isEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+    <button
+      onClick={() => onChange && onChange(!enabled)}
+      className={`relative inline-flex items-center h-6 rounded-full w-11 transition-colors ${enabled ? 'bg-green-500' : 'bg-[var(--color-soft-grey)]'}`}
+    >
+      <span className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform ${enabled ? 'translate-x-6' : 'translate-x-1'}`} />
     </button>
   );
 };
@@ -33,6 +35,7 @@ interface Company {
   careerPageUrl?: string;
   defaultTimezone?: string;
   aiTone?: string;
+  enableAutoMerge?: boolean;
   description?: string;
 }
 
@@ -238,6 +241,7 @@ export default function SettingsPage() {
                     <div className="mb-6 flex items-center gap-6">
                       <div className="w-24 h-24 rounded-lg border border-dashed border-gray-300 flex items-center justify-center bg-gray-50 overflow-hidden relative group">
                         {company.logoUrl ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
                           <img src={company.logoUrl} alt="Company Logo" className="w-full h-full object-contain" />
                         ) : (
                           <span className="text-gray-400 text-xs text-center px-2">No Logo</span>
@@ -327,6 +331,58 @@ export default function SettingsPage() {
                           className="input-base w-full mt-1 min-h-[120px]"
                           placeholder="e.g. We are a fast-paced fintech startup focused on democratizing finance..."
                         />
+                      </div>
+
+                      {/* NEW: Data Safety & Automation */}
+                      <div className="sm:col-span-2 pt-6 mt-6 border-t border-[var(--color-border-subtle)]">
+                        <h4 className="font-bold text-gray-900 mb-4">Data Safety & Automation</h4>
+
+                        <div className="flex items-center justify-between p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                          <div>
+                            <h5 className="font-bold text-gray-800">Automatic Candidate Merging (Silent Mode)</h5>
+                            <p className="text-xs text-gray-600 mt-1 max-w-lg">
+                              When enabled, the system will attempt to merge new applicants with existing profiles if they share the same <strong>Phone Number</strong> and <strong>Last Name</strong>, even if the email is different.
+                            </p>
+                            <p className="text-[10px] font-bold text-yellow-700 mt-2 uppercase tracking-wide">
+                              ⚠️ Risky: May merge different people with similar names/phones.
+                            </p>
+                          </div>
+                          <ToggleSwitch
+                            enabled={company.enableAutoMerge || false}
+                            onChange={(val) => setCompany({ ...company, enableAutoMerge: val })}
+                          />
+                        </div>
+
+                        {/* Re-index Database */}
+                        <div className="flex items-center justify-between p-4 bg-blue-50 border border-blue-200 rounded-lg mt-4">
+                          <div>
+                            <h5 className="font-bold text-gray-800">Re-index Database</h5>
+                            <p className="text-xs text-gray-600 mt-1 max-w-lg">
+                              Manually trigger a full re-index of all candidates to the AI search engine. Use this if search results seem out of sync.
+                            </p>
+                          </div>
+                          <button
+                            onClick={async () => {
+                              if (!confirm('Are you sure? This will re-process all candidates in the background.')) return;
+                              const apiUrl = getBaseUrl();
+                              const token = localStorage.getItem('access_token');
+                              try {
+                                const res = await fetch(`${apiUrl}/candidates/reindex`, {
+                                  method: 'POST',
+                                  headers: { 'Authorization': `Bearer ${token}` }
+                                });
+                                if (res.ok) alert('Re-indexing started in background.');
+                                else alert('Failed to start re-indexing.');
+                              } catch (e) {
+                                console.error(e);
+                                alert('Error triggering re-index.');
+                              }
+                            }}
+                            className="btn-secondary text-xs bg-white border-blue-200 text-blue-700 hover:bg-blue-100"
+                          >
+                            Trigger Re-index
+                          </button>
+                        </div>
                       </div>
 
                     </div>

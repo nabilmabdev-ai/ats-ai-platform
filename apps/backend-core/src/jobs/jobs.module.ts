@@ -17,4 +17,4 @@ import { EmailModule } from '../email/email.module'; // <--- Import EmailModule
   controllers: [JobsController],
   providers: [JobsService],
 })
-export class JobsModule { }
+export class JobsModule {}

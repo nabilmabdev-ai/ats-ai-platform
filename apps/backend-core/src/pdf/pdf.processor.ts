@@ -10,28 +10,30 @@ import { TDocumentDefinitions } from 'pdfmake/interfaces';
 
 @Processor('pdf')
 export class PdfProcessor extends WorkerHost {
-    constructor(
-        private readonly pdfService: PdfService,
-        private readonly prisma: PrismaService,
-    ) {
-        super();
+  constructor(
+    private readonly pdfService: PdfService,
+    private readonly prisma: PrismaService,
+  ) {
+    super();
+  }
+
+  async process(
+    job: Job<{ offerId: string; docDefinition: TDocumentDefinitions }>,
+  ) {
+    if (job.name === 'generate-pdf') {
+      const { offerId, docDefinition } = job.data;
+      const pdfStream = this.pdfService.generatePdf(docDefinition);
+      const pdfDir = path.join(process.cwd(), 'uploads', 'generated-offers');
+      await fsPromises.mkdir(pdfDir, { recursive: true });
+      const relativePdfPath = `/generated-offers/${offerId}.pdf`;
+      const fullPdfPath = path.join(pdfDir, `${offerId}.pdf`);
+
+      await pipeline(pdfStream, createWriteStream(fullPdfPath));
+
+      await this.prisma.offer.update({
+        where: { id: offerId },
+        data: { generatedOfferUrl: relativePdfPath },
+      });
     }
-
-    async process(job: Job<{ offerId: string; docDefinition: TDocumentDefinitions }>) {
-        if (job.name === 'generate-pdf') {
-            const { offerId, docDefinition } = job.data;
-            const pdfStream = this.pdfService.generatePdf(docDefinition);
-            const pdfDir = path.join(process.cwd(), 'uploads', 'generated-offers');
-            await fsPromises.mkdir(pdfDir, { recursive: true });
-            const relativePdfPath = `/generated-offers/${offerId}.pdf`;
-            const fullPdfPath = path.join(pdfDir, `${offerId}.pdf`);
-
-            await pipeline(pdfStream, createWriteStream(fullPdfPath));
-
-            await this.prisma.offer.update({
-                where: { id: offerId },
-                data: { generatedOfferUrl: relativePdfPath },
-            });
-        }
-    }
+  }
 }

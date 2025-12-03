@@ -21,7 +21,7 @@ export class InterviewsService {
     private httpService: HttpService,
     private emailService: EmailService,
     private calendarService: CalendarService,
-  ) { }
+  ) {}
 
   // --- NEW: Find All (For Dashboard) ---
   async findAll(page: number = 1, limit: number = 10, startDate?: Date) {
@@ -245,5 +245,25 @@ export class InterviewsService {
     }
 
     // Email sent inside try block on success
+  }
+
+  async generateQuestions(dto: any) {
+    try {
+      const { data } = await firstValueFrom(
+        this.httpService.post(
+          'http://localhost:8000/generate-interview-questions',
+          {
+            job_title: dto.jobTitle,
+            job_description: dto.jobDescription || '',
+            skills: dto.skills || [],
+            candidate_name: dto.candidateName || 'Candidate',
+          },
+        ),
+      );
+      return data;
+    } catch (e: any) {
+      console.error('AI Question Generation Failed', e.message);
+      throw new BadRequestException('Failed to generate questions');
+    }
   }
 }

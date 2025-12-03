@@ -14,4 +14,4 @@ import { EmailModule } from '../email/email.module';
   providers: [InterviewsService, CalendarService],
   exports: [InterviewsService],
 })
-export class InterviewsModule { }
+export class InterviewsModule {}

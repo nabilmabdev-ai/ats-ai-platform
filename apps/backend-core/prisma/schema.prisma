@@ -36,6 +36,7 @@ enum AppStatus {
   OFFER
   HIRED
   REJECTED
+  SOURCED
 }
 
 enum InterviewStatus {
@@ -335,6 +336,7 @@ model Company {
   careerPageUrl   String?
   defaultTimezone String?
   aiTone          String?
+  enableAutoMerge Boolean  @default(false)
   description     String?  @db.Text
   
   createdAt       DateTime @default(now())

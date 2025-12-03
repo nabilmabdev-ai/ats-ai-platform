@@ -14,7 +14,7 @@ export default function StarRating({ label, value, onChange, readOnly }: StarRat
 
   return (
     <div className="flex justify-between items-center py-3 border-b border-[var(--color-border-subtle)] last:border-0">
-      <span className="text-sm font-bold text-[var(--color-gunmetal)] uppercase tracking-wide">{label}</span>
+      <span className="text-sm font-bold text-[var(--color-text-dark)] uppercase tracking-wide">{label}</span>
       <div className="flex gap-1" onMouseLeave={() => !readOnly && setHoverValue(null)}>
         {[1, 2, 3, 4, 5].map((star) => {
           const isFilled = (hoverValue !== null ? star <= hoverValue : star <= value);
@@ -30,7 +30,7 @@ export default function StarRating({ label, value, onChange, readOnly }: StarRat
               className={`
                 focus:outline-none transition-all duration-200 transform
                 ${!readOnly ? 'cursor-pointer active:scale-95 hover:scale-110' : 'cursor-default'}
-                ${isFilled ? 'text-[var(--color-warning)]' : 'text-[var(--color-border-medium)]'}
+                ${isFilled ? 'text-[var(--color-warning)]' : 'text-[var(--color-border)]'}
                 ${isHovered ? 'opacity-100' : isFilled && hoverValue ? 'opacity-60' : 'opacity-100'}
               `}
             >

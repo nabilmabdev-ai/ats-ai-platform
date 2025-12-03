@@ -8,7 +8,7 @@ interface Application {
 
   job: { id: string; title: string };
 
-  candidate: { email: string; firstName: string; lastName: string };
+  candidate: { id: string; email: string; firstName: string; lastName: string };
 
   aiSummary: string;
 
@@ -34,15 +34,17 @@ interface DashboardDataFetcherProps {
   initialApplications: Application[];
   selectedJobId: string;
   showClosed: boolean;
+  totalCount: number;
 }
 
-export default function DashboardDataFetcher({ jobs, initialApplications, selectedJobId, showClosed }: DashboardDataFetcherProps) {
+export default function DashboardDataFetcher({ jobs, initialApplications, selectedJobId, showClosed, totalCount }: DashboardDataFetcherProps) {
   return (
     <PipelineBoard
       jobs={jobs}
       initialApplications={initialApplications}
       selectedJobId={selectedJobId}
       showClosed={showClosed}
+      totalCount={totalCount}
     />
   );
 }

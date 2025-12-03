@@ -7,7 +7,7 @@ const PAGE_SIZE = 10;
 interface Application {
   id: string;
   job: { id: string; title: string };
-  candidate: { email: string; firstName: string; lastName: string };
+  candidate: { id: string; email: string; firstName: string; lastName: string };
   aiSummary: string;
   status: string;
   aiScore: number;
@@ -32,6 +32,7 @@ export default async function Dashboard({
 
   let jobsData: Job[] = [];
   let appsData: Application[] = [];
+  let totalCount = 0;
   let error = null;
 
   try {
@@ -57,6 +58,11 @@ export default async function Dashboard({
     const appsPayload = await appsRes.json();
     // Handle { data: [], total: ... } structure or direct array
     appsData = Array.isArray(appsPayload) ? appsPayload : (appsPayload.data || []);
+    if (!Array.isArray(appsPayload) && 'total' in appsPayload) {
+      totalCount = appsPayload.total;
+    } else {
+      totalCount = appsData.length;
+    }
 
     console.log(`[Dashboard] Fetched ${appsData.length} applications for job: ${selectedJobId}`);
 
@@ -79,6 +85,7 @@ export default async function Dashboard({
       initialApplications={appsData}
       selectedJobId={selectedJobId}
       showClosed={showClosed}
+      totalCount={totalCount}
     />
   );
 }

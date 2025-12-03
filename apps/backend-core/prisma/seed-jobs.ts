@@ -117,8 +117,6 @@ async function main() {
     }
   });
 
-
-
   // 6. ARCHIVED: Legacy Java Developer
   console.log('   Creating job: Legacy Java Developer...');
   await prisma.job.create({
@@ -145,6 +143,42 @@ async function main() {
       remoteType: RemoteType.REMOTE,
       location: 'Remote (UK)',
       descriptionText: 'Q1 hiring quota met.',
+      hiringManagerId: salesManager?.id,
+    }
+  });
+
+  // 8. PUBLISHED: Product Manager
+  console.log('   Creating job: Product Manager...');
+  await prisma.job.create({
+    data: {
+      title: 'Product Manager',
+      department: 'Product',
+      status: JobStatus.PUBLISHED,
+      priority: JobPriority.HIGH,
+      remoteType: RemoteType.HYBRID,
+      location: 'London, UK',
+      headcount: 1,
+      descriptionText: `# Product Manager\n\nLead the product vision.\n\n## Responsibilities\n- Define product strategy.\n- Work with Engineering and Design.`,
+      requirements: ['Product Management', 'Agile', 'User Research'],
+      salaryMin: 70000,
+      salaryMax: 95000,
+      hiringManagerId: manager?.id,
+      approvedById: admin?.id,
+      approvedAt: new Date(),
+    }
+  });
+
+  // 9. DRAFT: Customer Success Manager
+  console.log('   Creating job: Customer Success Manager...');
+  await prisma.job.create({
+    data: {
+      title: 'Customer Success Manager',
+      department: 'Customer Success',
+      status: JobStatus.DRAFT,
+      priority: JobPriority.MEDIUM,
+      remoteType: RemoteType.REMOTE,
+      location: 'Remote (Europe)',
+      descriptionText: 'Manage key accounts and ensure customer satisfaction.',
       hiringManagerId: salesManager?.id,
     }
   });

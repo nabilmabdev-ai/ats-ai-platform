@@ -17,6 +17,7 @@ import { DocumentTemplatesModule } from './document-templates/document-templates
 import { PdfModule } from './pdf/pdf.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { CompanyModule } from './company/company.module';
+import { SearchModule } from './search/search.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { CompanyModule } from './company/company.module';
     PdfModule,
     UploadsModule,
     CompanyModule,
+    SearchModule,
     BullModule.forRoot({
       connection: {
         host: process.env.REDIS_HOST || 'localhost',
@@ -45,4 +47,4 @@ import { CompanyModule } from './company/company.module';
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule { }
+export class AppModule {}

@@ -15,4 +15,4 @@ import { PdfProcessor } from './pdf.processor';
   providers: [PdfService, PdfProcessor],
   exports: [PdfService, BullModule],
 })
-export class PdfModule { }
+export class PdfModule {}

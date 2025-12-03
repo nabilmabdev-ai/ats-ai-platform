@@ -118,7 +118,12 @@ async function main() {
       name: 'Backend Node.js/Cloud',
       requiredSkills: ['Node.js', 'PostgreSQL', 'API Design', 'Docker'],
       niceToHaves: ['Kubernetes', 'AWS', 'NestJS', 'Redis'],
-      scoringWeights: { skills: 0.7, experience: 0.2, education: 0.1 }
+      scoringWeights: { skills: 0.7, experience: 0.2, education: 0.1 },
+      interviewQuestions: [
+        "Explain the difference between SQL and NoSQL databases.",
+        "How do you handle error handling in an Express/NestJS application?",
+        "Describe your experience with containerization and orchestration."
+      ]
     }
   });
 
@@ -127,7 +132,12 @@ async function main() {
       name: 'B2B Sales',
       requiredSkills: ['B2B Sales', 'CRM', 'Negotiation', 'Prospecting'],
       niceToHaves: ['SaaS Experience', 'HubSpot', 'French', 'English'],
-      scoringWeights: { skills: 0.5, experience: 0.4, education: 0.1 }
+      scoringWeights: { skills: 0.5, experience: 0.4, education: 0.1 },
+      interviewQuestions: [
+        "Walk me through your sales process from prospecting to closing.",
+        "How do you handle objections during a demo?",
+        "Describe a time you missed a quota and what you learned."
+      ]
     }
   });
 
@@ -160,7 +170,8 @@ async function main() {
       defaultDepartment: 'Engineering',
       defaultLocation: 'London',
       defaultRemoteType: RemoteType.HYBRID,
-      defaultScreeningTemplateId: frontendScorecard.id
+      defaultScreeningTemplateId: frontendScorecard.id,
+      aiTone: 'Professional yet exciting'
     }
   });
 
@@ -170,7 +181,8 @@ async function main() {
       structure: `# {{job_title}}\n\n## 💼 The Opportunity\n{{ai_summary}}\n\n## 🎯 What You'll Do\n{{ai_responsibilities}}\n\n## ✅ Who You Are\n{{ai_requirements}}\n\n## 💰 Compensation\n- Base Salary + Uncapped Commission\n- Quarterly Performance Bonuses\n\n{{> legal_block}}`,
       defaultDepartment: 'Sales',
       defaultRemoteType: RemoteType.ONSITE,
-      defaultScreeningTemplateId: salesScorecard.id
+      defaultScreeningTemplateId: salesScorecard.id,
+      aiTone: 'Persuasive and energetic'
     }
   });
 
@@ -224,7 +236,10 @@ async function main() {
       logoUrl: '/logo.png',
       address: '123 Tech Avenue, London, UK',
       careerPageUrl: 'https://careers.ats.ai',
-      defaultTimezone: 'Europe/London'
+      defaultTimezone: 'Europe/London',
+      aiTone: 'Professional, Innovative, Inclusive',
+      enableAutoMerge: true,
+      description: 'ATS.ai is a leading provider of AI-powered recruitment solutions. We help companies hire the best talent faster and fairer.'
     }
   });
 

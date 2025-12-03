@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   title: "HT Recruitment OS",
   description: "Next-Gen Recruitment & HRIS System",
   icons: {
-    icon: "/favicon.ico",
+    icon: "/favicon.svg",
   },
 };
 

@@ -8,7 +8,7 @@ import { UpdateJobDto } from './dto/update-job.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import * as Handlebars from 'handlebars';
-import { JobStatus } from '@prisma/client';
+import { JobStatus, AppStatus } from '@prisma/client';
 
 @Injectable()
 export class JobsService {
@@ -16,7 +16,7 @@ export class JobsService {
     private prisma: PrismaService,
     private httpService: HttpService,
     private emailService: EmailService,
-  ) { }
+  ) {}
 
   // --- Fetch Templates for Frontend ---
   async getJobTemplates() {
@@ -90,7 +90,8 @@ export class JobsService {
         company_description: companyDescription, // Pass company description
       };
 
-      const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+      const aiServiceUrl =
+        process.env.AI_SERVICE_URL || 'http://localhost:8000';
 
       const { data: aiData } = await firstValueFrom(
         this.httpService.post(
@@ -159,7 +160,8 @@ export class JobsService {
     `.trim();
 
     try {
-      const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+      const aiServiceUrl =
+        process.env.AI_SERVICE_URL || 'http://localhost:8000';
       const { data } = await firstValueFrom(
         this.httpService.post(`${aiServiceUrl}/match-job`, {
           job_description: queryText,
@@ -198,8 +200,14 @@ export class JobsService {
     } catch (error: any) {
       // Improved Error Logging for matchCandidates
       if (error.response) {
-        console.error('AI Matching Service Error Response Data:', error.response.data);
-        console.error('AI Matching Service Error Status:', error.response.status);
+        console.error(
+          'AI Matching Service Error Response Data:',
+          error.response.data,
+        );
+        console.error(
+          'AI Matching Service Error Status:',
+          error.response.status,
+        );
       } else if (error.request) {
         console.error('AI Matching Service No Response:', error.request);
       } else {
@@ -240,7 +248,7 @@ export class JobsService {
 
     if (!screeningId && createJobDto.templateId) {
       const jobTemplate = await this.prisma.jobTemplate.findUnique({
-        where: { id: createJobDto.templateId }
+        where: { id: createJobDto.templateId },
       });
       if (jobTemplate?.defaultScreeningTemplateId) {
         screeningId = jobTemplate.defaultScreeningTemplateId;
@@ -252,14 +260,15 @@ export class JobsService {
       screeningId = defaultScreening?.id;
     }
 
-    return this.prisma.job.create({
+    const newJob = await this.prisma.job.create({
       data: {
         title: createJobDto.title,
         descriptionText: createJobDto.descriptionText,
         requirements: createJobDto.requirements ?? [],
         salaryMin: createJobDto.salaryMin,
         salaryMax: createJobDto.salaryMax,
-        status: (createJobDto.status as JobStatus) || JobStatus.PENDING_APPROVAL,
+        status:
+          (createJobDto.status as JobStatus) || JobStatus.PENDING_APPROVAL,
         priority: createJobDto.priority,
         remoteType: createJobDto.remoteType,
         headcount: createJobDto.headcount,
@@ -276,6 +285,14 @@ export class JobsService {
         knockoutQuestions: createJobDto.knockoutQuestions ?? [],
       },
     });
+
+    // [SILVER MEDALIST] Auto-source candidates
+    // We run this in background (no await) so we don't block the response
+    this.autoSourceSilverMedalists(newJob.id).catch((err) =>
+      console.error('[SilverMedalist] Error in background task:', err),
+    );
+
+    return newJob;
   }
 
   // --- Approval & Distribution Workflow ---
@@ -350,8 +367,14 @@ export class JobsService {
     if (!existingJob) throw new NotFoundException('Job not found');
 
     // 2. Merge existing data with update data for validation
-    const salaryMin = updateJobDto.salaryMin !== undefined ? updateJobDto.salaryMin : existingJob.salaryMin;
-    const salaryMax = updateJobDto.salaryMax !== undefined ? updateJobDto.salaryMax : existingJob.salaryMax;
+    const salaryMin =
+      updateJobDto.salaryMin !== undefined
+        ? updateJobDto.salaryMin
+        : existingJob.salaryMin;
+    const salaryMax =
+      updateJobDto.salaryMax !== undefined
+        ? updateJobDto.salaryMax
+        : existingJob.salaryMax;
 
     // 3. Validate Salary Range
     if (salaryMin !== null && salaryMax !== null && salaryMax <= salaryMin) {
@@ -382,5 +405,95 @@ export class JobsService {
         },
       },
     });
+  }
+
+  // --- Silver Medalist Logic ---
+  async autoSourceSilverMedalists(jobId: string) {
+    const job = await this.prisma.job.findUnique({ where: { id: jobId } });
+    if (!job) return;
+
+    console.log(`[SilverMedalist] Auto-sourcing for job: ${job.title}`);
+
+    // 1. Get AI Matches
+    const queryText = `
+      Job Title: ${job.title}
+      Description: ${job.descriptionText}
+      Requirements: ${JSON.stringify(job.requirements)}
+    `.trim();
+
+    let matches: any[] = [];
+    try {
+      const aiServiceUrl =
+        process.env.AI_SERVICE_URL || 'http://localhost:8000';
+      const { data } = await firstValueFrom(
+        this.httpService.post(`${aiServiceUrl}/match-job`, {
+          job_description: queryText,
+          limit: 50, // Fetch more to filter
+          offset: 0,
+        }),
+      );
+      matches = data.matches || [];
+    } catch (e) {
+      console.error('[SilverMedalist] AI Match failed', e);
+      return;
+    }
+
+    if (matches.length === 0) return;
+
+    const candidateIds = matches.map((m: any) => m.candidate_id);
+
+    // 2. Fetch Candidates with History
+    const candidates = await this.prisma.candidate.findMany({
+      where: { id: { in: candidateIds } },
+      include: {
+        applications: {
+          select: { status: true, jobId: true },
+        },
+      },
+    });
+
+    // 3. Filter: Must be "Silver Medalist"
+    // Definition: Has been REJECTED in the past, and NOT currently HIRED.
+    const silverMedalists = candidates.filter((c) => {
+      const hasRejection = c.applications.some(
+        (app) => app.status === AppStatus.REJECTED,
+      );
+      const isHired = c.applications.some(
+        (app) => app.status === AppStatus.HIRED,
+      );
+
+      // Don't suggest if already applied to THIS job
+      const appliedToThisJob = c.applications.some(
+        (app) => app.jobId === jobId,
+      );
+
+      return hasRejection && !isHired && !appliedToThisJob;
+    });
+
+    console.log(
+      `[SilverMedalist] Found ${silverMedalists.length} candidates from ${matches.length} matches.`,
+    );
+
+    // 4. Create Applications (Limit to top 5)
+    const topCandidates = silverMedalists.slice(0, 5);
+
+    for (const candidate of topCandidates) {
+      const match = matches.find((m: any) => m.candidate_id === candidate.id);
+
+      await this.prisma.application.create({
+        data: {
+          jobId: jobId,
+          candidateId: candidate.id,
+          status: AppStatus.SOURCED,
+          tags: ['Silver Medalist', 'AI Sourced'],
+          aiScore: match?.score || 0,
+          aiSummary:
+            'Auto-sourced as a Silver Medalist from previous rejection.',
+        },
+      });
+      console.log(
+        `[SilverMedalist] Sourced candidate ${candidate.id} for job ${jobId}`,
+      );
+    }
   }
 }

@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Body,
+  Param,
+} from '@nestjs/common';
 import { TemplatesService } from './templates.service';
 
 @Controller('templates')
@@ -37,7 +45,7 @@ export class TemplatesController {
   getScreeningTemplates() {
     return this.templatesService.getScreeningTemplates();
   }
-  
+
   // [NEW] Get Single Screening Template
   @Get('screening/:id')
   getScreeningTemplate(@Param('id') id: string) {

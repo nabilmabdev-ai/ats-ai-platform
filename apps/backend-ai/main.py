@@ -635,3 +635,63 @@ def analyze_interview(request: InterviewAnalysisRequest):
     except Exception as e:
         logger.error(f"Interview Analysis Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- NEW: Generate Interview Questions Endpoint ---
+class QuestionGenRequest(BaseModel):
+    job_title: str
+    job_description: Optional[str] = ""
+    skills: List[str] = []
+    candidate_name: Optional[str] = "The Candidate"
+
+class QuestionGenResponse(BaseModel):
+    role_specific: List[str]
+    behavioral: List[str]
+    competency: List[str]
+    red_flags: List[str]
+
+@app.post("/generate-interview-questions")
+def generate_interview_questions(request: QuestionGenRequest):
+    try:
+        model = genai.GenerativeModel('gemini-2.5-pro')
+        
+        skills_str = ", ".join(request.skills) if request.skills else "General Skills"
+        
+        prompt = f"""
+        Act as an expert Technical Recruiter. Generate a set of interview questions for a candidate.
+        
+        ROLE: {request.job_title}
+        SKILLS: {skills_str}
+        CANDIDATE NAME: {request.candidate_name}
+        JOB CONTEXT: {request.job_description[:1000]}...
+        
+        TASK:
+        Generate 4 distinct categories of questions (3-5 questions per category):
+        
+        1. "role_specific": Technical/Hard skill questions based on the role and skills.
+        2. "behavioral": STAR method questions (Situation, Task, Action, Result).
+        3. "competency": Core soft skills (Communication, Teamwork, Problem-solving).
+        4. "red_flags": Questions to detect stress response, integrity issues, or culture mismatch.
+        
+        OUTPUT FORMAT (JSON):
+        {{
+            "role_specific": ["Q1", "Q2", "Q3"],
+            "behavioral": ["Q1", "Q2", "Q3"],
+            "competency": ["Q1", "Q2", "Q3"],
+            "red_flags": ["Q1", "Q2", "Q3"]
+        }}
+        """
+        
+        logger.info(f"Generating questions for {request.job_title}...")
+        response = model.generate_content(
+            prompt,
+            generation_config=genai.GenerationConfig(
+                response_mime_type="application/json",
+                max_output_tokens=8192
+            )
+        )
+        logger.info(f"Raw AI Response: {response.text[:500]}...") # Log first 500 chars
+        return clean_and_parse_json(response.text)
+        
+    except Exception as e:
+        logger.error(f"Question Gen Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -13,7 +13,7 @@ import SystemHealthBanner from '../components/SystemHealthBanner';
 export interface Application {
     id: string;
     job: { id: string; title: string };
-    candidate: { email: string; firstName: string; lastName: string };
+    candidate: { id: string; email: string; firstName: string; lastName: string };
     aiSummary: string;
     status: string;
     aiScore: number;
@@ -29,6 +29,7 @@ export interface JobOption {
 
 // --- Constants ---
 const COLUMNS: Record<string, string> = {
+    SOURCED: 'Sourced',
     APPLIED: 'New Applicants',
     SCREENING: 'Screening',
     INTERVIEW: 'Interview',
@@ -38,6 +39,7 @@ const COLUMNS: Record<string, string> = {
 };
 
 const COLUMN_COLORS: Record<string, string> = {
+    SOURCED: 'border-indigo-500',
     APPLIED: 'border-blue-500',
     SCREENING: 'border-yellow-500',
     INTERVIEW: 'border-purple-500',
@@ -54,6 +56,7 @@ interface PipelineBoardProps {
     initialApplications: Application[];
     selectedJobId: string;
     showClosed: boolean;
+    totalCount: number;
 }
 
 // 1. Add an EyeOff Icon for the toggle
@@ -70,7 +73,7 @@ const EyeOffIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
-export default function PipelineBoard({ jobs, initialApplications, selectedJobId, showClosed }: PipelineBoardProps) {
+export default function PipelineBoard({ jobs, initialApplications, selectedJobId, showClosed, totalCount }: PipelineBoardProps) {
     const router = useRouter();
     const searchParams = useSearchParams();
     const [period, setPeriod] = useState<PeriodOption>('all');
@@ -78,6 +81,19 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
 
     // 2. New State for filtering
     const [showRejected, setShowRejected] = useState(false);
+
+    // State for pagination
+    const [applications, setApplications] = useState<Application[]>(initialApplications);
+    const [page, setPage] = useState(1);
+    const [hasMore, setHasMore] = useState(initialApplications.length < totalCount);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+    // Update local state when initial props change (e.g. filter change)
+    useEffect(() => {
+        setApplications(initialApplications);
+        setPage(1);
+        setHasMore(initialApplications.length < totalCount);
+    }, [initialApplications, totalCount]);
 
     const handleJobSelect = (jobId: string) => {
         const params = new URLSearchParams(searchParams);
@@ -90,14 +106,14 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
     };
 
     const handleRefresh = () => {
-        // Implement refresh logic
+        router.refresh();
     };
 
     const [columns, setColumns] = useState<Record<string, Application[]>>({});
 
     useEffect(() => {
         const grouped: Record<string, Application[]> = Object.keys(COLUMNS).reduce((acc, key) => ({ ...acc, [key]: [] }), {});
-        initialApplications.forEach(app => {
+        applications.forEach(app => {
             // 3. FILTER LOGIC: If showRejected is false, skip rejected apps
             if (!showRejected && app.status === 'REJECTED') {
                 return;
@@ -107,13 +123,40 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
             }
         });
         setColumns(grouped);
-    }, [initialApplications, showRejected]); // Add showRejected dependency
+    }, [applications, showRejected]);
 
-    const [hasMore, setHasMore] = useState(true);
-    const [isLoadingMore, setIsLoadingMore] = useState(false);
+    const loadMore = async () => {
+        if (isLoadingMore || !hasMore) return;
+        setIsLoadingMore(true);
 
-    const loadMore = () => {
-        // Implement load more logic
+        try {
+            const nextPage = page + 1;
+            const jobIdQuery = selectedJobId !== 'ALL' ? `&jobId=${selectedJobId}` : '';
+            const closedQuery = showClosed ? '&includeClosed=true' : '';
+
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/applications?page=${nextPage}&limit=${PAGE_SIZE}${jobIdQuery}${closedQuery}`);
+
+            if (!res.ok) throw new Error('Failed to fetch more applications');
+
+            const payload = await res.json();
+            const newApps = Array.isArray(payload) ? payload : (payload.data || []);
+
+            if (newApps.length === 0) {
+                setHasMore(false);
+            } else {
+                setApplications(prev => [...prev, ...newApps]);
+                setPage(nextPage);
+                // Check if we've reached the total
+                if (applications.length + newApps.length >= totalCount) {
+                    setHasMore(false);
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load more:', error);
+            alert('Failed to load more applications.');
+        } finally {
+            setIsLoadingMore(false);
+        }
     };
 
     // --- Derived State for Closed Job ---
@@ -156,24 +199,77 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
         }
     };
 
-    const onDragEnd = (result: DropResult) => {
+    const onDragEnd = async (result: DropResult) => {
         if (isJobClosed) return; // Double check to prevent drops on closed jobs
 
-        const { source, destination } = result;
+        const { destination, source, draggableId } = result;
 
         if (!destination) {
             return;
+        }
+
+        if (
+            destination.droppableId === source.droppableId &&
+            destination.index === source.index
+        ) {
+            return;
+        }
+
+        const sourceColumn = columns[source.droppableId];
+        const destColumn = columns[destination.droppableId];
+        const movedApp = sourceColumn.find(app => app.id === draggableId);
+
+        if (!movedApp) return;
+
+        // Optimistic Update
+        const newColumns = { ...columns };
+
+        // Remove from source
+        newColumns[source.droppableId] = Array.from(sourceColumn);
+        newColumns[source.droppableId].splice(source.index, 1);
+
+        // Add to destination
+        if (source.droppableId === destination.droppableId) {
+            newColumns[source.droppableId].splice(destination.index, 0, movedApp);
+        } else {
+            // Update status if moving to a different column
+            const updatedApp = { ...movedApp, status: destination.droppableId };
+            newColumns[destination.droppableId] = Array.from(destColumn);
+            newColumns[destination.droppableId].splice(destination.index, 0, updatedApp);
+        }
+
+        setColumns(newColumns);
+
+        // Persist to Backend
+        if (source.droppableId !== destination.droppableId) {
+            try {
+                const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/applications/${draggableId}/status`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: destination.droppableId }),
+                });
+
+                if (!res.ok) throw new Error('Failed to update status');
+            } catch (error) {
+                console.error('Failed to move card:', error);
+                alert('Failed to move card. Reverting changes.');
+                // Revert state
+                setColumns(columns);
+            }
         }
     };
 
     return (
         <div className="h-full flex flex-col bg-white rounded-2xl shadow-lg shadow-black/[0.02]">
             <SystemHealthBanner />
-            {/* --- Header --- */}            <div className="flex items-center justify-between p-5 border-b border-gray-200/60">
-                <div className="flex items-center gap-4">
+            {/* --- Header --- */}
+            <div className="flex items-center justify-between p-5 border-b border-gray-200/60">
+                {/* Filter Bar Container */}
+                <div className="bg-white border border-[var(--color-border)] rounded-[var(--radius-lg)] shadow-sm px-4 py-2 flex items-center gap-3">
                     <JobSelector jobs={jobs} selectedJobId={selectedJobId} onSelectJob={handleJobSelect} />
                     <PeriodSelector selectedPeriod={period} onSelectPeriod={handlePeriodChange} />
-                    <button onClick={handleRefresh} className="p-2 rounded-md hover:bg-gray-100 transition-colors" title="Refresh data">
+                    <div className="h-6 w-px bg-gray-200 mx-1"></div>
+                    <button onClick={handleRefresh} className="p-2 rounded-md hover:bg-gray-100 transition-colors text-gray-500" title="Refresh data">
                         <svg className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                         </svg>
@@ -269,12 +365,13 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
                                 <div key={statusKey} className="flex flex-col w-[280px] h-full">
 
                                     {/* 1. Column Header (Sticky) */}
-                                    <div className="flex items-center justify-between mb-3 px-1">
+                                    <div className="flex items-center justify-between mb-3 px-1 sticky top-0 z-10 bg-[#F4F5F7] py-2 border-b border-[var(--color-border-subtle)]">
                                         <div className="flex items-center gap-2">
-                                            <h2 className="text-sm font-extrabold text-gray-800 uppercase tracking-tight">
+                                            <h2 className="text-sm font-bold text-[var(--color-text-dark)] uppercase tracking-wider flex items-center gap-2">
+                                                <span className="w-2 h-2 rounded-full bg-[var(--color-text-soft)] opacity-50"></span>
                                                 {title}
                                             </h2>
-                                            <span className="bg-gray-200 text-gray-700 text-[11px] font-bold px-2 py-0.5 rounded-full">
+                                            <span className="bg-white border border-[var(--color-border-subtle)] text-[var(--color-text-soft)] text-[10px] font-bold px-2 py-0.5 rounded-full">
                                                 {columns[statusKey]?.length || 0}
                                             </span>
                                         </div>
@@ -309,25 +406,15 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
 
                                                     {/* Empty State Illustration */}
                                                     {columns[statusKey]?.length === 0 && !snapshot.isDraggingOver && (
-                                                        <div className="h-full flex flex-col items-center justify-center text-center p-4 opacity-40 mt-4">
-                                                            <div className="h-2 w-16 bg-gray-100 rounded mb-1"></div>
-                                                            <div className="h-2 w-10 bg-gray-100 rounded"></div>
+                                                        <div className="mt-4 bg-[var(--color-neutral-50)] border border-[var(--color-border-subtle)] rounded-[var(--radius-xl)] p-4 text-center">
+                                                            <p className="text-sm text-[var(--color-text-soft)] italic">
+                                                                Drag candidates here to start screening.
+                                                            </p>
                                                         </div>
                                                     )}
                                                 </div>
                                             )}
                                         </Droppable>
-                                        {hasMore && statusKey === 'APPLIED' && (
-                                            <div className="p-2 border-t border-gray-200/60">
-                                                <button
-                                                    onClick={loadMore}
-                                                    disabled={isLoadingMore}
-                                                    className="w-full text-center text-xs font-bold text-[var(--color-text-soft)] hover:text-[var(--color-primary)] disabled:opacity-50"
-                                                >
-                                                    {isLoadingMore ? 'Loading...' : 'Load More'}
-                                                </button>
-                                            </div>
-                                        )}
                                     </div>
                                 </div>
                             );
@@ -335,6 +422,19 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
                     </div>
                 </div>
             </DragDropContext >
+
+            {/* --- Load More Button (Global) --- */}
+            {hasMore && (
+                <div className="p-4 border-t border-gray-200 bg-white flex justify-center">
+                    <button
+                        onClick={loadMore}
+                        disabled={isLoadingMore}
+                        className="px-6 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 hover:text-gray-900 transition-colors disabled:opacity-50 shadow-sm"
+                    >
+                        {isLoadingMore ? 'Loading...' : `Load More Candidates (${applications.length} / ${totalCount})`}
+                    </button>
+                </div>
+            )}
         </div >
     );
 }

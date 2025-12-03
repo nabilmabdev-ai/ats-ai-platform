@@ -4,16 +4,16 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('company')
 export class CompanyController {
-    constructor(private readonly companyService: CompanyService) { }
+  constructor(private readonly companyService: CompanyService) {}
 
-    @Get()
-    getCompany() {
-        return this.companyService.getCompany();
-    }
+  @Get()
+  getCompany() {
+    return this.companyService.getCompany();
+  }
 
-    @Patch()
-    @UseGuards(JwtAuthGuard)
-    updateCompany(@Body() body: any) {
-        return this.companyService.updateCompany(body);
-    }
+  @Patch()
+  @UseGuards(JwtAuthGuard)
+  updateCompany(@Body() body: any) {
+    return this.companyService.updateCompany(body);
+  }
 }

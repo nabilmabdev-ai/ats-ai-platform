@@ -27,7 +27,7 @@ import {
 
 @Controller('applications')
 export class ApplicationsController {
-  constructor(private readonly applicationsService: ApplicationsService) { }
+  constructor(private readonly applicationsService: ApplicationsService) {}
 
   // [NEW] Check for failures (for the frontend badge)
   @Get('health/parsing-failures')
@@ -97,6 +97,7 @@ export class ApplicationsController {
       jobId: string;
       email: string;
       name: string;
+      phone?: string;
       knockoutAnswers?: string;
     },
   ) {
@@ -119,6 +120,7 @@ export class ApplicationsController {
         jobId: body.jobId,
         email: body.email,
         name: body.name,
+        phone: body.phone,
         knockoutAnswers: answers,
       },
       file.path,
@@ -134,7 +136,13 @@ export class ApplicationsController {
     @Query('includeClosed') includeClosed?: string,
   ) {
     const showClosed = includeClosed === 'true';
-    return this.applicationsService.findAll(jobId, period, page, limit, showClosed);
+    return this.applicationsService.findAll(
+      jobId,
+      period,
+      page,
+      limit,
+      showClosed,
+    );
   }
 
   @Get(':id')

@@ -3,13 +3,13 @@ import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class TemplatesService {
-  constructor(private prisma: PrismaService) { }
+  constructor(private prisma: PrismaService) {}
 
   // --- JOB TEMPLATES ---
   async getJobTemplates() {
     return this.prisma.jobTemplate.findMany({
       orderBy: { name: 'asc' },
-      include: { defaultScreeningTemplate: true }
+      include: { defaultScreeningTemplate: true },
     });
   }
 
@@ -17,7 +17,7 @@ export class TemplatesService {
   async getJobTemplate(id: string) {
     return this.prisma.jobTemplate.findUnique({
       where: { id },
-      include: { defaultScreeningTemplate: true }
+      include: { defaultScreeningTemplate: true },
     });
   }
 
@@ -26,8 +26,8 @@ export class TemplatesService {
     return this.prisma.jobTemplate.create({
       data: {
         ...rest,
-        defaultScreeningTemplateId: defaultScreeningTemplateId || null
-      }
+        defaultScreeningTemplateId: defaultScreeningTemplateId || null,
+      },
     });
   }
 
@@ -37,7 +37,7 @@ export class TemplatesService {
       where: { id },
       data: {
         ...rest,
-        defaultScreeningTemplateId: defaultScreeningTemplateId || null
+        defaultScreeningTemplateId: defaultScreeningTemplateId || null,
       },
     });
   }

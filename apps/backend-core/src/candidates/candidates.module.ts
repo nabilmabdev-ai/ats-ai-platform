@@ -4,6 +4,7 @@ import { CandidatesController } from './candidates.controller';
 import { CandidatesService } from './candidates.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { BullModule } from '@nestjs/bullmq';
+import { SearchModule } from '../search/search.module';
 
 @Module({
   imports: [
@@ -12,8 +13,9 @@ import { BullModule } from '@nestjs/bullmq';
     BullModule.registerQueue({
       name: 'applications',
     }),
+    SearchModule,
   ],
   controllers: [CandidatesController],
   providers: [CandidatesService],
 })
-export class CandidatesModule { }
+export class CandidatesModule {}
