@@ -11,6 +11,9 @@ env/
 # Environment Variables
 .env
 
+# Google Cloud Service Account Credentials
+apps/backend-ai/google-credentials.json
+
 # Type checking
 .mypy_cache/
 .pytest_cache/
