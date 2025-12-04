@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { UserPlus } from 'lucide-react';
 import DiscoveryView, { DiscoveryFilters } from './DiscoveryView';
 import DatabaseView, { DatabaseFilters } from './DatabaseView';
+import AddCandidateModal from '../components/AddCandidateModal';
 
 const PAGE_SIZE = 10;
 
@@ -107,15 +109,20 @@ export default function SearchPage() {
       params.append('limit', PAGE_SIZE.toString());
 
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/candidates/search?${params.toString()}`);
-      const data = await res.json();
+      const rawData = await res.json() as Candidate[];
+      const data = Array.from(new Map(rawData.map((item: Candidate) => [item.id, item])).values());
 
       if (isLoadMore) {
-        setResults(prev => [...prev, ...data]);
+        setResults(prev => {
+          const existingIds = new Set(prev.map(p => p.id));
+          const uniqueNew = data.filter((c: Candidate) => !existingIds.has(c.id));
+          return [...prev, ...uniqueNew];
+        });
       } else {
         setResults(data);
       }
 
-      setHasMore(data.length === PAGE_SIZE);
+      setHasMore(rawData.length === PAGE_SIZE);
       if (isLoadMore) setPage(currentPage);
 
     } catch (err) {
@@ -135,6 +142,8 @@ export default function SearchPage() {
     performSearch(false);
   }, [performSearch]);
 
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+
   const loadMore = useCallback(() => {
     performSearch(true);
   }, [performSearch]);
@@ -149,25 +158,35 @@ export default function SearchPage() {
             <p className="text-sm text-[var(--color-text-soft)]">AI-Powered Sourcing & Database Management</p>
           </div>
 
-          <div className="flex bg-[var(--color-neutral-100)] p-1 rounded-lg">
+          <div className="flex items-center gap-4">
             <button
-              onClick={() => setActiveTab('discovery')}
-              className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'discovery'
-                ? 'bg-white text-[var(--color-primary)] shadow-sm'
-                : 'text-[var(--color-text-soft)] hover:text-[var(--color-text-dark)]'
-                }`}
+              onClick={() => setIsAddModalOpen(true)}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-bold shadow-sm hover:bg-blue-700 transition-colors flex items-center gap-2"
             >
-              ✨ Discovery
+              <UserPlus className="w-4 h-4" />
+              Add Candidate
             </button>
-            <button
-              onClick={() => setActiveTab('database')}
-              className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'database'
-                ? 'bg-white text-[var(--color-primary)] shadow-sm'
-                : 'text-[var(--color-text-soft)] hover:text-[var(--color-text-dark)]'
-                }`}
-            >
-              🗄️ Database
-            </button>
+
+            <div className="flex bg-[var(--color-neutral-100)] p-1 rounded-lg">
+              <button
+                onClick={() => setActiveTab('discovery')}
+                className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'discovery'
+                  ? 'bg-white text-[var(--color-primary)] shadow-sm'
+                  : 'text-[var(--color-text-soft)] hover:text-[var(--color-text-dark)]'
+                  }`}
+              >
+                ✨ Discovery
+              </button>
+              <button
+                onClick={() => setActiveTab('database')}
+                className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'database'
+                  ? 'bg-white text-[var(--color-primary)] shadow-sm'
+                  : 'text-[var(--color-text-soft)] hover:text-[var(--color-text-dark)]'
+                  }`}
+              >
+                🗄️ Database
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -202,6 +221,14 @@ export default function SearchPage() {
           />
         )}
       </div>
+
+      <AddCandidateModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        onSuccess={() => {
+          performSearch(false);
+        }}
+      />
     </div>
   );
 }

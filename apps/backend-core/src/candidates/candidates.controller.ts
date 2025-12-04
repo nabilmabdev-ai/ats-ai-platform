@@ -9,7 +9,13 @@ import {
   Body,
   ParseIntPipe,
   Post,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname } from 'path';
 import { CandidatesService } from './candidates.service';
 
 @Controller('candidates')
@@ -52,15 +58,52 @@ export class CandidatesController {
   }
 
   @Post('merge')
-  async merge(@Body() body: { primaryId: string; secondaryId: string }) {
+  async merge(@Body() body: { primaryId: string; secondaryId: string; strategy?: any }) {
     return this.candidatesService.mergeCandidates(
       body.primaryId,
       body.secondaryId,
+      body.strategy,
     );
   }
 
   @Post('reindex')
   async reindex() {
     return this.candidatesService.triggerFullReindex();
+  }
+  @Post()
+  async create(@Body() body: any) {
+    return this.candidatesService.createCandidate(body);
+  }
+
+  @Post('upload')
+  @UseInterceptors(
+    FileInterceptor('resume', {
+      storage: diskStorage({
+        destination: './uploads',
+        filename: (req, file, cb) => {
+          const randomName = Array(32)
+            .fill(null)
+            .map(() => Math.round(Math.random() * 16).toString(16))
+            .join('');
+          cb(null, `${randomName}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        if (!file.originalname.match(/\.(pdf|doc|docx)$/)) {
+          return cb(
+            new BadRequestException('Only PDF/Word files are allowed!'),
+            false,
+          );
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  async upload(@UploadedFile() file: any, @Body() body: any) {
+    if (!file) throw new BadRequestException('File is required');
+    return this.candidatesService.createCandidate({
+      ...body,
+      resumeS3Key: file.path,
+    });
   }
 }

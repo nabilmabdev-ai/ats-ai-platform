@@ -4,7 +4,7 @@ import * as bcrypt from 'bcrypt';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Initializing foundation data...');
+  console.log('🌱 Initializing foundation data for IO Solutions...');
 
   // --- 1. CLEANUP ---
   try {
@@ -29,44 +29,32 @@ async function main() {
   // --- 2. USERS ---
   console.log('   👤 Initializing users...');
 
-  const adminPasswordHash = await bcrypt.hash('Sanaa2021', 10);
-  const userPasswordHash = await bcrypt.hash('password123', 10);
+  const passwordHash = await bcrypt.hash('password123', 10);
 
   const users = [
     {
-      email: 'admin@ats.ai',
-      fullName: 'Alice Admin',
+      email: 'admin@iosolutions.com',
+      fullName: 'System Admin',
       role: Role.ADMIN,
-      timezone: 'Europe/London',
-      passwordHash: adminPasswordHash
+      timezone: 'Africa/Casablanca',
     },
     {
-      email: 'recruiter@ats.ai',
-      fullName: 'Ben Recruiter',
+      email: 'recruiter@iosolutions.com',
+      fullName: 'Amine Recruiter',
       role: Role.RECRUITER,
-      timezone: 'Europe/London',
-      passwordHash: userPasswordHash
+      timezone: 'Africa/Casablanca',
     },
     {
-      email: 'manager@ats.ai',
-      fullName: 'Sarah Manager',
+      email: 'director@iosolutions.com',
+      fullName: 'Karim Director',
       role: Role.MANAGER,
-      timezone: 'America/New_York',
-      passwordHash: userPasswordHash
+      timezone: 'Africa/Casablanca',
     },
     {
-      email: 'tech@ats.ai',
-      fullName: 'David Dev',
+      email: 'teamlead@iosolutions.com',
+      fullName: 'Sarah TeamLead',
       role: Role.INTERVIEWER,
-      timezone: 'Europe/London',
-      passwordHash: userPasswordHash
-    },
-    {
-      email: 'sarah.sales@ats.ai',
-      fullName: 'Sarah VP Sales',
-      role: Role.MANAGER,
-      timezone: 'Europe/London',
-      passwordHash: userPasswordHash
+      timezone: 'Africa/Casablanca',
     }
   ];
 
@@ -75,7 +63,7 @@ async function main() {
       data: {
         email: u.email,
         fullName: u.fullName,
-        passwordHash: u.passwordHash,
+        passwordHash,
         role: u.role,
         availability: {
           timezone: u.timezone,
@@ -87,56 +75,52 @@ async function main() {
 
   // --- 3. WORKFLOWS ---
   console.log('   🔄 Initializing workflows...');
+
   await prisma.jobWorkflowTemplate.create({
     data: {
-      name: 'Standard Tech Recruitment',
-      region: 'Global',
-      jobFamily: 'Engineering',
-      defaultStages: ['APPLIED', 'SCREENING', 'TECH_INTERVIEW', 'CULTURAL_INTERVIEW', 'OFFER', 'HIRED']
+      name: 'High Volume Agent Recruitment',
+      region: 'Morocco',
+      jobFamily: 'Operations',
+      defaultStages: ['APPLIED', 'PHONE_SCREENING', 'LANGUAGE_TEST', 'OPS_INTERVIEW', 'OFFER', 'HIRED']
     }
   });
 
-  // --- 4. SCREENING TEMPLATES (SCORECARDS) ---
+  await prisma.jobWorkflowTemplate.create({
+    data: {
+      name: 'Management Recruitment',
+      region: 'Morocco',
+      jobFamily: 'Management',
+      defaultStages: ['APPLIED', 'SCREENING', 'MANAGER_INTERVIEW', 'DIRECTOR_INTERVIEW', 'OFFER', 'HIRED']
+    }
+  });
+
+  // --- 4. SCREENING TEMPLATES ---
   console.log('   🧠 Initializing screening templates...');
 
-  const frontendScorecard = await prisma.screeningTemplate.create({
+  const bilingualAgentScorecard = await prisma.screeningTemplate.create({
     data: {
-      name: 'Frontend React Specialist',
-      requiredSkills: ['React', 'TypeScript', 'Tailwind CSS', 'State Management'],
-      niceToHaves: ['Next.js', 'Figma', 'Jest', 'GraphQL'],
+      name: 'Bilingual Agent (Fr/En)',
+      requiredSkills: ['French (C1)', 'English (B2)', 'Active Listening', 'Typing Speed'],
+      niceToHaves: ['CRM Experience', 'Previous BPO Experience'],
+      scoringWeights: { skills: 0.5, experience: 0.3, education: 0.2 },
+      interviewQuestions: [
+        "Can you introduce yourself in English and then switch to French?",
+        "How do you handle an angry customer?",
+        "What is your availability for rotating shifts?"
+      ]
+    }
+  });
+
+  const techSupportScorecard = await prisma.screeningTemplate.create({
+    data: {
+      name: 'Technical Support Specialist',
+      requiredSkills: ['Troubleshooting', 'Networking Basics', 'Empathy', 'French (C1)'],
+      niceToHaves: ['CompTIA A+', 'Cisco CCNA'],
       scoringWeights: { skills: 0.6, experience: 0.3, education: 0.1 },
       interviewQuestions: [
-        "Explain the React rendering lifecycle.",
-        "How do you optimize large lists in React?",
-        "Describe a complex UI bug you solved."
-      ]
-    }
-  });
-
-  const backendScorecard = await prisma.screeningTemplate.create({
-    data: {
-      name: 'Backend Node.js/Cloud',
-      requiredSkills: ['Node.js', 'PostgreSQL', 'API Design', 'Docker'],
-      niceToHaves: ['Kubernetes', 'AWS', 'NestJS', 'Redis'],
-      scoringWeights: { skills: 0.7, experience: 0.2, education: 0.1 },
-      interviewQuestions: [
-        "Explain the difference between SQL and NoSQL databases.",
-        "How do you handle error handling in an Express/NestJS application?",
-        "Describe your experience with containerization and orchestration."
-      ]
-    }
-  });
-
-  const salesScorecard = await prisma.screeningTemplate.create({
-    data: {
-      name: 'B2B Sales',
-      requiredSkills: ['B2B Sales', 'CRM', 'Negotiation', 'Prospecting'],
-      niceToHaves: ['SaaS Experience', 'HubSpot', 'French', 'English'],
-      scoringWeights: { skills: 0.5, experience: 0.4, education: 0.1 },
-      interviewQuestions: [
-        "Walk me through your sales process from prospecting to closing.",
-        "How do you handle objections during a demo?",
-        "Describe a time you missed a quota and what you learned."
+        "Walk me through how you would troubleshoot a 'No Internet' issue.",
+        "How do you explain a technical concept to a non-technical person?",
+        "Describe a time you went above and beyond for a customer."
       ]
     }
   });
@@ -146,43 +130,24 @@ async function main() {
 
   await prisma.legalTemplate.create({
     data: {
-      region: 'UK',
-      language: 'en',
-      content: `\n\n### ⚖️ Legal Information (UK)\nThis role is open to all professionals. We value diversity and inclusion.\n**GDPR Notice:** Your data is processed in accordance with GDPR regulations.\n**Equal Opportunity:** We are an equal opportunity employer.`
+      region: 'Morocco',
+      language: 'fr',
+      content: `\n\n### ⚖️ Mentions Légales\nCe poste est ouvert à tous. Nous valorisons la diversité.\n**CNSS/AMO:** Déclaré à 100%.\n**Contrat:** CDI.`
     }
   });
 
-  await prisma.legalTemplate.create({
-    data: {
-      region: 'US',
-      language: 'en',
-      content: `\n\n### ⚖️ Legal Information (US)\nWe are an Equal Opportunity Employer.\n**Privacy:** Your data is processed securely.`
-    }
-  });
-
-  // --- 6. JOB TEMPLATES (STRUCTURE) ---
+  // --- 6. JOB TEMPLATES ---
   console.log('   📄 Initializing job templates...');
 
   await prisma.jobTemplate.create({
     data: {
-      name: 'Engineering Role (Standard)',
-      structure: `# {{job_title}}\n\n## 🚀 The Mission\n{{ai_summary}}\n\n## ⚡ Key Responsibilities\n{{ai_responsibilities}}\n\n## 🛠️ Technical Requirements\n{{ai_requirements}}\n\n## 🎁 Benefits & Perks\n- Competitive Salary & Equity\n- Remote-First Culture\n- Premium Health Insurance\n- MacBook Pro M3\n\n{{> legal_block}}`,
-      defaultDepartment: 'Engineering',
-      defaultLocation: 'London',
-      defaultRemoteType: RemoteType.HYBRID,
-      defaultScreeningTemplateId: frontendScorecard.id,
-      aiTone: 'Professional yet exciting'
-    }
-  });
-
-  await prisma.jobTemplate.create({
-    data: {
-      name: 'Sales Role',
-      structure: `# {{job_title}}\n\n## 💼 The Opportunity\n{{ai_summary}}\n\n## 🎯 What You'll Do\n{{ai_responsibilities}}\n\n## ✅ Who You Are\n{{ai_requirements}}\n\n## 💰 Compensation\n- Base Salary + Uncapped Commission\n- Quarterly Performance Bonuses\n\n{{> legal_block}}`,
-      defaultDepartment: 'Sales',
+      name: 'Customer Service Representative',
+      structure: `# {{job_title}}\n\n## 🚀 Mission\n{{ai_summary}}\n\n## ⚡ Responsabilités\n{{ai_responsibilities}}\n\n## 🛠️ Profil Recherché\n{{ai_requirements}}\n\n## 🎁 Avantages\n- Salaire motivant + Primes\n- Transport assuré\n- Assurance Maladie Complémentaire\n- Plan de carrière\n\n{{> legal_block}}`,
+      defaultDepartment: 'Operations',
+      defaultLocation: 'Rabat',
       defaultRemoteType: RemoteType.ONSITE,
-      defaultScreeningTemplateId: salesScorecard.id,
-      aiTone: 'Persuasive and energetic'
+      defaultScreeningTemplateId: bilingualAgentScorecard.id,
+      aiTone: 'Professional, Welcoming, Dynamic'
     }
   });
 
@@ -191,39 +156,19 @@ async function main() {
 
   await prisma.documentTemplate.create({
     data: {
-      name: 'Standard Job Offer (International)',
+      name: 'CDI Standard (Maroc)',
       type: 'OFFER',
       content: `
-        <div style="font-family: Helvetica, Arial, sans-serif; max-width: 800px; margin: 0 auto; line-height: 1.6;">
-          <h1 style="color: #333; border-bottom: 2px solid #eee; padding-bottom: 10px;">Job Offer</h1>
-          <p>Dear <strong>{{candidate.firstName}}</strong>,</p>
-          <p>We are pleased to offer you the position of <strong>{{job.title}}</strong> at ATS.ai!</p>
-          
-          <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0;">
-            <h3 style="margin-top: 0;">Compensation Package</h3>
-            <ul style="list-style: none; padding: 0;">
-              <li>💰 <strong>Base Salary:</strong> {{offer.salaryFormatted}} {{offer.currency}} / year</li>
-              <li>📈 <strong>Equity:</strong> {{offer.equity}}</li>
-              <li>📅 <strong>Start Date:</strong> {{offer.startDate}}</li>
-            </ul>
-          </div>
-
-          <p>We have been incredibly impressed by your background and are convinced you will be a major asset to our {{job.department}} team.</p>
-          <p>Please sign below to accept this offer.</p>
-          
-          <div style="margin-top: 50px; border-top: 1px solid #000; width: 200px; padding-top: 5px;">
-            Signature
-          </div>
+        <div style="font-family: Arial, sans-serif;">
+          <h1>Offre d'Emploi</h1>
+          <p>Bonjour <strong>{{candidate.firstName}}</strong>,</p>
+          <p>Nous avons le plaisir de vous offrir le poste de <strong>{{job.title}}</strong> chez IO Solutions !</p>
+          <ul>
+            <li>Salaire de base: {{offer.salaryFormatted}} MAD</li>
+            <li>Date de début: {{offer.startDate}}</li>
+          </ul>
         </div>
       `
-    }
-  });
-
-  await prisma.documentTemplate.create({
-    data: {
-      name: 'Contract (UK)',
-      type: 'CONTRACT',
-      content: `<h1>Employment Contract</h1><p>Between ATS.ai and {{candidate.firstName}} {{candidate.lastName}}...</p>`
     }
   });
 
@@ -232,14 +177,14 @@ async function main() {
 
   await prisma.company.create({
     data: {
-      name: 'ATS.ai',
+      name: 'IO Solutions Contact Center',
       logoUrl: '/logo.png',
-      address: '123 Tech Avenue, London, UK',
-      careerPageUrl: 'https://careers.ats.ai',
-      defaultTimezone: 'Europe/London',
-      aiTone: 'Professional, Innovative, Inclusive',
+      address: 'Casablanca, Morocco',
+      careerPageUrl: 'https://careers.iosolutions.com',
+      defaultTimezone: 'Africa/Casablanca',
+      aiTone: 'Professional, Dynamic, Customer-Focused',
       enableAutoMerge: true,
-      description: 'ATS.ai is a leading provider of AI-powered recruitment solutions. We help companies hire the best talent faster and fairer.'
+      description: 'As a global outsourcing player, IO Solutions has been combining leadership, people and processes for over 15 years to provide clients worldwide with tailored service and expertise that meets international standards. The group offers a global and multi-sectoral offering based on 4 solution areas: Telecommunications, Retail, Utilities and Financial Services. Founded in 2007, we are a Canadian leader in customer experience outsourcing. The group currently has over 1,500 employees in 4 operating centers.'
     }
   });
 

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
+import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
@@ -21,6 +22,10 @@ import { SearchModule } from './search/search.module';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: '.env',
+    }),
     PrismaModule,
     AuthModule, // <--- Add here
     JobsModule,
@@ -47,4 +52,4 @@ import { SearchModule } from './search/search.module';
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule { }

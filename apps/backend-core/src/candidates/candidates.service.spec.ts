@@ -22,6 +22,11 @@ const mockPrismaService = {
   comment: {
     updateMany: jest.fn(),
   },
+  offer: {
+    findUnique: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+  },
   $transaction: jest.fn((cb) => cb(mockPrismaService)),
 };
 
@@ -109,6 +114,63 @@ describe('CandidatesService', () => {
       // Verify Secondary Deletion
       expect(mockPrismaService.candidate.delete).toHaveBeenCalledWith({
         where: { id: secondaryId },
+      });
+    });
+
+    it('should upgrade status if secondary is more advanced', async () => {
+      const primaryId = 'p1';
+      const secondaryId = 's1';
+
+      mockPrismaService.candidate.findUnique
+        .mockResolvedValueOnce({ id: primaryId })
+        .mockResolvedValueOnce({
+          id: secondaryId,
+          applications: [{ id: 'app2', jobId: 'job1', status: 'INTERVIEW' }]
+        });
+
+      // Conflict with lower status
+      mockPrismaService.application.findUnique.mockResolvedValueOnce({
+        id: 'app1',
+        status: 'APPLIED',
+        offer: null
+      });
+
+      await service.mergeCandidates(primaryId, secondaryId);
+
+      // Should update primary status to INTERVIEW
+      expect(mockPrismaService.application.update).toHaveBeenCalledWith({
+        where: { id: 'app1' },
+        data: { status: 'INTERVIEW' }
+      });
+    });
+
+    it('should move offer if primary has none', async () => {
+      const primaryId = 'p1';
+      const secondaryId = 's1';
+
+      mockPrismaService.candidate.findUnique
+        .mockResolvedValueOnce({ id: primaryId })
+        .mockResolvedValueOnce({
+          id: secondaryId,
+          applications: [{ id: 'app2', jobId: 'job1', status: 'OFFER' }]
+        });
+
+      // Conflict with no offer
+      mockPrismaService.application.findUnique.mockResolvedValueOnce({
+        id: 'app1',
+        status: 'INTERVIEW',
+        offer: null
+      });
+
+      // Secondary has offer
+      mockPrismaService.offer.findUnique.mockResolvedValueOnce({ id: 'offer2' });
+
+      await service.mergeCandidates(primaryId, secondaryId);
+
+      // Should move offer2 to app1
+      expect(mockPrismaService.offer.update).toHaveBeenCalledWith({
+        where: { id: 'offer2' },
+        data: { applicationId: 'app1' }
       });
     });
   });

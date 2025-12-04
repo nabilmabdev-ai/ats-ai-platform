@@ -8,6 +8,8 @@ import CandidateCard from '../components/CandidateCard';
 import JobSelector from '../components/JobSelector';
 import PeriodSelector, { PeriodOption } from '../components/PeriodSelector';
 import SystemHealthBanner from '../components/SystemHealthBanner';
+import { UserPlus } from 'lucide-react';
+import AddCandidateModal from '../components/AddCandidateModal';
 
 // --- Types ---
 export interface Application {
@@ -78,6 +80,7 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
     const searchParams = useSearchParams();
     const [period, setPeriod] = useState<PeriodOption>('all');
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
     // 2. New State for filtering
     const [showRejected, setShowRejected] = useState(false);
@@ -331,10 +334,28 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
                                             <div className="text-xs text-gray-500">Close job (Hired)</div>
                                         </div>
                                     </button>
+                                    <button
+                                        onClick={() => handleUpdateStatus('ARCHIVED')}
+                                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                                    >
+                                        <span className="w-2 h-2 rounded-full bg-gray-400"></span>
+                                        <div>
+                                            <div className="font-medium">Archive Job</div>
+                                            <div className="text-xs text-gray-500">Hide from pipeline</div>
+                                        </div>
+                                    </button>
                                 </div>
                             )}
                         </div>
                     )}
+
+                    <button
+                        onClick={() => setIsAddModalOpen(true)}
+                        className="px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-50 flex items-center gap-2"
+                    >
+                        <UserPlus className="w-4 h-4" />
+                        <span>Add Candidate</span>
+                    </button>
 
                     <Link href="/jobs/new" className="btn-primary flex items-center gap-2 shadow-[var(--shadow-glow)] hover:scale-105 transition-transform">
                         <span>+</span> Create Job
@@ -353,7 +374,7 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
             )}
 
             {/* --- Kanban Board Area --- */}
-            < DragDropContext onDragEnd={onDragEnd} >
+            <DragDropContext onDragEnd={onDragEnd}>
                 <div className="flex-1 overflow-x-auto overflow-y-hidden bg-[#F4F5F7]">
                     <div className="flex h-full gap-4 px-8 pt-6 pb-4 min-w-max">
                         {Object.entries(COLUMNS).map(([statusKey, title]) => {
@@ -421,7 +442,7 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
                         })}
                     </div>
                 </div>
-            </DragDropContext >
+            </DragDropContext>
 
             {/* --- Load More Button (Global) --- */}
             {hasMore && (
@@ -435,6 +456,15 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
                     </button>
                 </div>
             )}
-        </div >
+
+            <AddCandidateModal
+                isOpen={isAddModalOpen}
+                onClose={() => setIsAddModalOpen(false)}
+                jobId={selectedJobId !== 'ALL' ? selectedJobId : undefined}
+                onSuccess={() => {
+                    router.refresh();
+                }}
+            />
+        </div>
     );
 }

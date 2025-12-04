@@ -1,0 +1,19 @@
+# Python Compiled
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+venv/
+env/
+.venv/
+
+# Environment Variables
+.env
+
+# Type checking
+.mypy_cache/
+.pytest_cache/
+
+# Vector DBs (If running local instances/volumes inside this folder)
+milvus_data/

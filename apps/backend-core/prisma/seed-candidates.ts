@@ -3,228 +3,80 @@ import { PrismaClient, AppStatus } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Initializing candidates...');
+  console.log('🌱 Initializing candidates for IO Solutions...');
 
-  const reactJob = await prisma.job.findFirst({ where: { title: { contains: 'React' } } });
-  const backendJob = await prisma.job.findFirst({ where: { title: { contains: 'Backend' } } });
-  const salesJob = await prisma.job.findFirst({ where: { title: { contains: 'Sales' } } });
-  const productJob = await prisma.job.findFirst({ where: { title: { contains: 'Product Manager' } } });
+  const bilingualJob = await prisma.job.findFirst({ where: { title: { contains: 'Bilingual' } } });
+  const techJob = await prisma.job.findFirst({ where: { title: { contains: 'Technical' } } });
+  const teamLeadJob = await prisma.job.findFirst({ where: { title: { contains: 'Team Leader' } } });
 
-  const recruiter = await prisma.user.findFirst({ where: { email: 'recruiter@ats.ai' } });
-  const manager = await prisma.user.findFirst({ where: { email: 'manager@ats.ai' } });
+  const candidates = [
+    // 1. Qualified Bilingual Candidates (Applied)
+    {
+      firstName: 'Yassine', lastName: 'Benali', email: 'yassine.benali@gmail.com', phone: '+212600112233',
+      jobId: bilingualJob?.id, status: AppStatus.APPLIED,
+      resumeText: 'Fluent in English and French. 2 years experience in call center.'
+    },
+    {
+      firstName: 'Sara', lastName: 'Mansouri', email: 'sara.mansouri@outlook.com', phone: '+212600445566',
+      jobId: bilingualJob?.id, status: AppStatus.APPLIED,
+      resumeText: 'Fresh graduate. English Literature major. Excellent communication skills.'
+    },
+    {
+      firstName: 'Omar', lastName: 'Tazi', email: 'omar.tazi@gmail.com', phone: '+212600778899',
+      jobId: bilingualJob?.id, status: AppStatus.APPLIED,
+      resumeText: 'Experience in customer service for a French telecom operator.'
+    },
 
-  if (!reactJob || !backendJob) throw new Error('❌ Missing jobs.');
+    // 2. Tech Support Candidates (Screening)
+    {
+      firstName: 'Mehdi', lastName: 'El Amrani', email: 'mehdi.elamrani@gmail.com', phone: '+212611223344',
+      jobId: techJob?.id, status: AppStatus.SCREENING,
+      resumeText: 'Certified IT Technician. Knowledge of TCP/IP, DNS, DHCP.'
+    },
+    {
+      firstName: 'Fatima', lastName: 'Zahra', email: 'fatima.zahra@gmail.com', phone: '+212622334455',
+      jobId: techJob?.id, status: AppStatus.SCREENING,
+      resumeText: 'Computer Science student. Passionate about hardware troubleshooting.'
+    },
 
-  // 1. Perfect Candidate for React (Screening)
-  const alice = await prisma.candidate.create({
-    data: {
-      firstName: 'Alice', lastName: 'Lemon', email: 'alice.lemon@example.com',
-      location: 'London', education: 'MSc Computer Science', experience: 6,
-      resumeText: 'Senior React Developer. 6 years exp. Stack: React, TypeScript, Next.js, Tailwind. Team Lead (5 ppl).',
-      resumeS3Key: 'uploads/alice.pdf',
-      applications: {
-        create: {
-          jobId: reactJob.id,
-          status: AppStatus.SCREENING,
-          aiScore: 0.95,
-          aiSummary: 'Excellent match. Meets all criteria and has leadership experience.',
-          aiParsingData: { skills: ['React', 'TypeScript', 'Next.js'], experience_years: 6 },
-          knockoutAnswers: { q1: 'Yes', q2: 'Yes' },
-          ownerId: recruiter?.id
-        }
-      }
+    // 3. Team Lead Candidates (Interview)
+    {
+      firstName: 'Karim', lastName: 'Berrada', email: 'karim.berrada@linkedin.com', phone: '+212633445566',
+      jobId: teamLeadJob?.id, status: AppStatus.INTERVIEW,
+      resumeText: '5 years experience as Team Manager in a major BPO. Managed team of 25.'
+    },
+
+    // 4. Rejected Candidates
+    {
+      firstName: 'Ahmed', lastName: 'Kabbaj', email: 'ahmed.kabbaj@gmail.com', phone: '+212644556677',
+      jobId: bilingualJob?.id, status: AppStatus.REJECTED,
+      resumeText: 'French level B1. Needs improvement.'
+    },
+
+    // 5. Hired Candidate
+    {
+      firstName: 'Leila', lastName: 'Chraibi', email: 'leila.chraibi@gmail.com', phone: '+212655667788',
+      jobId: bilingualJob?.id, status: AppStatus.HIRED,
+      resumeText: 'Perfect bilingual. 3 years experience. Immediate availability.'
     }
-  });
+  ];
 
-  // 2. Auto-Rejected (React Job)
-  await prisma.candidate.create({
-    data: {
-      firstName: 'Bob', lastName: 'Durant', email: 'bob.durant@example.com',
-      location: 'Manchester', education: 'Bootcamp', experience: 1,
-      resumeText: 'Junior Developer. HTML, CSS, Basic React.',
-      resumeS3Key: 'uploads/bob.pdf',
-      applications: {
-        create: {
-          jobId: reactJob.id,
-          status: AppStatus.REJECTED,
-          aiScore: 0.40,
-          isAutoRejected: true,
-          aiSummary: 'Does not meet minimum experience requirements.',
-          knockoutAnswers: { q1: 'Yes', q2: 'No' }, // Failed experience question
-          ownerId: recruiter?.id
-        }
-      }
-    }
-  });
+  for (const c of candidates) {
+    if (!c.jobId) continue;
 
-  // 3. Good Backend Profile (Applied)
-  await prisma.candidate.create({
-    data: {
-      firstName: 'Charles', lastName: 'Martin', email: 'charles.martin@example.com',
-      location: 'Remote', experience: 8,
-      resumeText: 'Node.js Expert. Microservices, AWS, Docker. 8 years experience.',
-      resumeS3Key: 'uploads/charlie.pdf',
-      applications: {
-        create: {
-          jobId: backendJob.id,
-          status: AppStatus.APPLIED,
-          aiScore: 0.88,
-          aiSummary: 'Strong backend candidate.',
-          knockoutAnswers: { q1: 'Yes' },
-          ownerId: recruiter?.id
-        }
-      }
-    }
-  });
-
-  // 4. Interview Phase (React Job)
-  await prisma.candidate.create({
-    data: {
-      firstName: 'David', lastName: 'Barnes', email: 'david.barnes@example.com',
-      location: 'London', experience: 5,
-      resumeText: 'React Developer. Redux, Jest, Cypress.',
-      resumeS3Key: 'uploads/david.pdf',
-      applications: {
-        create: {
-          jobId: reactJob.id,
-          status: AppStatus.INTERVIEW,
-          aiScore: 0.85,
-          aiSummary: 'Solid technical skills. Good profile.',
-          tags: ['Technical', 'Shortlisted'],
-          ownerId: recruiter?.id
-        }
-      }
-    }
-  });
-
-  // 5. Hired Candidate (React Job)
-  await prisma.candidate.create({
-    data: {
-      firstName: 'Emily', lastName: 'Davis', email: 'emily.davis@example.com',
-      location: 'London', experience: 7,
-      resumeText: 'Full Stack. React + Node.',
-      resumeS3Key: 'uploads/emily.pdf',
-      applications: {
-        create: {
-          jobId: reactJob.id,
-          status: AppStatus.HIRED,
-          aiScore: 0.98,
-          aiSummary: 'Perfect candidate.',
-          ownerId: manager?.id
-        }
-      }
-    }
-  });
-
-  // 6. Sales Candidate (Pending Job)
-  if (salesJob) {
     await prisma.candidate.create({
       data: {
-        firstName: 'Samuel', lastName: 'Small', email: 'samuel.small@example.com',
-        location: 'London', experience: 10,
-        resumeText: 'Enterprise Sales Director. Closed 5M ARR.',
+        firstName: c.firstName,
+        lastName: c.lastName,
+        email: c.email,
+        phone: c.phone,
+        resumeText: c.resumeText,
         applications: {
           create: {
-            jobId: salesJob.id,
-            status: AppStatus.APPLIED,
-            aiScore: 0.92,
-            aiSummary: 'High value candidate.',
-            ownerId: recruiter?.id
-          }
-        }
-      }
-    });
-  }
-
-  // 7. New Candidates (Enrichment)
-
-  // Frank Miller (React - Applied)
-  await prisma.candidate.create({
-    data: {
-      firstName: 'Frank', lastName: 'Miller', email: 'frank.miller@example.com',
-      location: 'London', experience: 3,
-      resumeText: 'React Developer. 3 years experience. Redux, Material UI.',
-      applications: {
-        create: {
-          jobId: reactJob.id,
-          status: AppStatus.APPLIED,
-          aiScore: 0.75,
-          aiSummary: 'Good potential, but less experience than required.',
-          ownerId: recruiter?.id
-        }
-      }
-    }
-  });
-
-  // Grace Hopper (React - Screening)
-  await prisma.candidate.create({
-    data: {
-      firstName: 'Grace', lastName: 'Hopper', email: 'grace.hopper@example.com',
-      location: 'London', experience: 10,
-      resumeText: 'Principal Engineer. React, Node, Go, Rust. Architected large scale systems.',
-      applications: {
-        create: {
-          jobId: reactJob.id,
-          status: AppStatus.SCREENING,
-          aiScore: 0.99,
-          aiSummary: 'Exceptional candidate. Overqualified but very strong.',
-          ownerId: recruiter?.id
-        }
-      }
-    }
-  });
-
-  // Henry Ford (React - Rejected)
-  await prisma.candidate.create({
-    data: {
-      firstName: 'Henry', lastName: 'Ford', email: 'henry.ford@example.com',
-      location: 'Detroit', experience: 0,
-      resumeText: 'Industrialist. No coding experience.',
-      applications: {
-        create: {
-          jobId: reactJob.id,
-          status: AppStatus.REJECTED,
-          aiScore: 0.10,
-          isAutoRejected: true,
-          aiSummary: 'No relevant technical skills.',
-          ownerId: recruiter?.id
-        }
-      }
-    }
-  });
-
-  // Ian Wright (Backend - Applied)
-  await prisma.candidate.create({
-    data: {
-      firstName: 'Ian', lastName: 'Wright', email: 'ian.wright@example.com',
-      location: 'Remote', experience: 5,
-      resumeText: 'Backend Developer. Python, Django, Postgres.',
-      applications: {
-        create: {
-          jobId: backendJob.id,
-          status: AppStatus.APPLIED,
-          aiScore: 0.65, // Lower score because stack mismatch (Python vs Node)
-          aiSummary: 'Good backend experience but different stack (Python).',
-          ownerId: recruiter?.id
-        }
-      }
-    }
-  });
-
-  // Jane Doe (Product Manager - Applied)
-  if (productJob) {
-    await prisma.candidate.create({
-      data: {
-        firstName: 'Jane', lastName: 'Doe', email: 'jane.doe@example.com',
-        location: 'London', experience: 4,
-        resumeText: 'Product Manager. Agile, Jira, User Stories. Launched 2 mobile apps.',
-        applications: {
-          create: {
-            jobId: productJob.id,
-            status: AppStatus.APPLIED,
-            aiScore: 0.88,
-            aiSummary: 'Strong product background.',
-            ownerId: recruiter?.id
+            jobId: c.jobId,
+            status: c.status,
+            aiScore: c.status === AppStatus.REJECTED ? 45 : 85,
+            aiSummary: 'Candidate profile analysis...'
           }
         }
       }

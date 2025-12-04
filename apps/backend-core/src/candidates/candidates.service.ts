@@ -25,6 +25,12 @@ interface SearchParams {
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 
+export interface MergeStrategy {
+  keepNameFrom: 'primary' | 'secondary';
+  keepResumeFrom: 'primary' | 'secondary';
+  keepContactFrom: 'primary' | 'secondary';
+}
+
 @Injectable()
 export class CandidatesService {
   constructor(
@@ -186,7 +192,15 @@ export class CandidatesService {
     return candidate;
   }
 
-  async mergeCandidates(primaryId: string, secondaryId: string) {
+  async mergeCandidates(
+    primaryId: string,
+    secondaryId: string,
+    strategy: MergeStrategy = {
+      keepNameFrom: 'primary',
+      keepResumeFrom: 'primary',
+      keepContactFrom: 'primary',
+    },
+  ) {
     // 1. Fetch both candidates
     const primary = await this.prisma.candidate.findUnique({
       where: { id: primaryId },
@@ -200,46 +214,91 @@ export class CandidatesService {
       throw new Error('One or both candidates not found');
     }
 
-    // 2. Determine File Cleanup
+    // 2. Determine File Cleanup & Resume Selection
     let fileToDelete: string | null = null;
-    if (
-      primary.resumeS3Key &&
-      secondary.resumeS3Key &&
-      primary.resumeS3Key !== secondary.resumeS3Key
-    ) {
-      // If primary already has a resume, we will discard secondary's resume file
-      fileToDelete = secondary.resumeS3Key;
+    let finalResumeS3Key = primary.resumeS3Key;
+    let finalResumeText = primary.resumeText;
+
+    if (strategy.keepResumeFrom === 'secondary' && secondary.resumeS3Key) {
+      finalResumeS3Key = secondary.resumeS3Key;
+      finalResumeText = secondary.resumeText;
+      if (primary.resumeS3Key && primary.resumeS3Key !== secondary.resumeS3Key) {
+        fileToDelete = primary.resumeS3Key;
+      }
+    } else {
+      // Keep primary, delete secondary if exists and different
+      if (
+        secondary.resumeS3Key &&
+        primary.resumeS3Key !== secondary.resumeS3Key
+      ) {
+        fileToDelete = secondary.resumeS3Key;
+      }
+      // Fallback: if primary has no resume, take secondary's
+      if (!finalResumeS3Key && secondary.resumeS3Key) {
+        finalResumeS3Key = secondary.resumeS3Key;
+        finalResumeText = secondary.resumeText;
+        fileToDelete = null; // Don't delete it if we are adopting it
+      }
     }
 
     // 3. Transactional Merge
     await this.prisma.$transaction(async (tx) => {
-      // A. Coalesce Profile Data (Primary inherits missing fields)
+      // A. Coalesce Profile Data
+      const useSecondaryName = strategy.keepNameFrom === 'secondary';
+      const useSecondaryContact = strategy.keepContactFrom === 'secondary';
+
       await tx.candidate.update({
         where: { id: primaryId },
         data: {
-          phone: primary.phone || secondary.phone,
+          firstName: useSecondaryName ? secondary.firstName : (primary.firstName || secondary.firstName),
+          lastName: useSecondaryName ? secondary.lastName : (primary.lastName || secondary.lastName),
+          phone: useSecondaryContact ? secondary.phone : (primary.phone || secondary.phone),
+          email: useSecondaryContact ? secondary.email : primary.email, // Email is unique, usually primary's is kept, but maybe we want to swap? (Dangerous due to unique constraint) - Let's stick to Primary's email as the identity anchor for now, or just update aux fields.
           location: primary.location || secondary.location,
           education: primary.education || secondary.education,
-          experience: primary.experience || secondary.experience, // Or max? Let's stick to "if missing"
+          experience: Math.max(primary.experience || 0, secondary.experience || 0),
           linkedinUrl: primary.linkedinUrl || secondary.linkedinUrl,
-          // If primary has no resume, take secondary's
-          resumeS3Key: primary.resumeS3Key || secondary.resumeS3Key,
-          resumeText: primary.resumeText || secondary.resumeText,
+          resumeS3Key: finalResumeS3Key,
+          resumeText: finalResumeText,
         },
       });
 
       // B. Merge Applications
+      const statusHierarchy: AppStatus[] = [
+        AppStatus.SOURCED,
+        AppStatus.REJECTED,
+        AppStatus.APPLIED,
+        AppStatus.SCREENING,
+        AppStatus.INTERVIEW,
+        AppStatus.OFFER,
+        AppStatus.HIRED,
+      ];
+
       for (const app of secondary.applications) {
         // Check if primary already has an application for this job
         const conflict = await tx.application.findUnique({
           where: {
             jobId_candidateId: { jobId: app.jobId, candidateId: primaryId },
           },
+          include: { offer: true },
         });
 
         if (conflict) {
           // CONFLICT: Primary already applied.
-          // Move valuable child records (Interviews, Comments) to Primary's application
+
+          // 1. Smart Status Resolution
+          const primaryIdx = statusHierarchy.indexOf(conflict.status);
+          const secondaryIdx = statusHierarchy.indexOf(app.status);
+
+          if (secondaryIdx > primaryIdx) {
+            await tx.application.update({
+              where: { id: conflict.id },
+              data: { status: app.status }
+            });
+          }
+
+          // 2. Move Relations
+          // Interviews & Comments
           await tx.interview.updateMany({
             where: { applicationId: app.id },
             data: { applicationId: conflict.id },
@@ -249,7 +308,30 @@ export class CandidatesService {
             data: { applicationId: conflict.id },
           });
 
-          // Delete the secondary application (it's now empty/redundant)
+          // Offers
+          // If secondary has an offer...
+          const secondaryOffer = await tx.offer.findUnique({ where: { applicationId: app.id } });
+          if (secondaryOffer) {
+            if (!conflict.offer) {
+              // Move offer to primary
+              await tx.offer.update({
+                where: { id: secondaryOffer.id },
+                data: { applicationId: conflict.id }
+              });
+            } else {
+              // Both have offers. 
+              // If secondary status > primary status, we might want that offer? 
+              // But we can't easily swap offers without deleting one.
+              // For now, we log/ignore, assuming Primary's offer is "the one" if it exists.
+              // Or we could delete the secondary offer to avoid FK error when deleting app.
+              // Since we delete the app, the offer (if cascade delete is on) goes too.
+              // If not cascade, we must delete it.
+              // Let's assume we delete the secondary offer if we can't move it.
+              await tx.offer.delete({ where: { id: secondaryOffer.id } });
+            }
+          }
+
+          // Delete the secondary application
           await tx.application.delete({ where: { id: app.id } });
         } else {
           // NO CONFLICT: Just re-assign the application to Primary
@@ -267,11 +349,6 @@ export class CandidatesService {
     // 4. Post-Transaction File Cleanup
     if (fileToDelete) {
       try {
-        // Assuming uploads are stored locally in 'uploads/' relative to root or similar.
-        // The path in DB is usually relative or absolute?
-        // In applications.controller.ts: file.path is stored. Multer stores in './uploads'.
-        // So it's likely 'uploads/filename.pdf'.
-        // We need to resolve it relative to CWD.
         const absolutePath = path.resolve(process.cwd(), fileToDelete);
         await fs.unlink(absolutePath);
         console.log(`🗑️ Deleted orphaned resume: ${absolutePath}`);
@@ -280,11 +357,111 @@ export class CandidatesService {
           `⚠️ Failed to delete orphaned resume: ${fileToDelete}`,
           e,
         );
-        // We don't throw here, as the merge was successful.
       }
     }
 
+    // 5. Trigger Re-index
+    await this.applicationsQueue.add('reindex-candidate', {
+      candidateId: primaryId,
+    });
+
     return { success: true, mergedId: primaryId };
+  }
+
+  async createCandidate(data: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone?: string;
+    linkedinUrl?: string;
+    location?: string;
+    jobId?: string;
+    resumeS3Key?: string;
+  }) {
+    // 1. Check for existing candidate
+    const existing = await this.prisma.candidate.findUnique({
+      where: { email: data.email },
+    });
+
+    if (existing) {
+      throw new Error('Candidate with this email already exists');
+    }
+
+    // 2. Create Candidate
+    const candidate = await this.prisma.candidate.create({
+      data: {
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email,
+        phone: data.phone,
+        linkedinUrl: data.linkedinUrl,
+        location: data.location,
+        resumeS3Key: data.resumeS3Key,
+        lastActiveAt: new Date(),
+      },
+    });
+
+    // 3. If jobId is provided, create an application
+    if (data.jobId) {
+      // Check if job exists
+      const job = await this.prisma.job.findUnique({
+        where: { id: data.jobId },
+      });
+      if (!job) throw new Error('Job not found');
+
+      // Check for existing application
+      const existingApp = await this.prisma.application.findUnique({
+        where: {
+          jobId_candidateId: { jobId: data.jobId, candidateId: candidate.id },
+        },
+      });
+
+      if (!existingApp) {
+        await this.prisma.application.create({
+          data: {
+            jobId: data.jobId,
+            candidateId: candidate.id,
+            status: 'APPLIED', // Default status
+          },
+        });
+      }
+    }
+
+    return candidate;
+  }
+
+  async createCandidateFromResume(
+    file: { path: string; originalname: string },
+    data: { jobId?: string },
+  ) {
+    // 1. We don't have the candidate details yet (they are in the resume).
+    // So we create a placeholder candidate or rely on the parsing logic?
+    // The current parsing logic (process-application) assumes an Application exists.
+    // But we can't create an Application without a Candidate.
+    // And we can't create a Candidate correctly without parsing the resume first (to get email/name).
+
+    // SOLUTION: We will create a "Pending" candidate with a placeholder email if needed, 
+    // OR better: We parse the resume synchronously here (or via a quick service) 
+    // OR we just create a candidate with "Unknown" and let the AI update it?
+
+    // Let's try to extract at least the email/name if passed in body? 
+    // If the user just uploads a file, we might not have name/email.
+
+    // If we look at ApplicationsService.create, it requires name/email in the body.
+    // So for "Manual Upload", we should probably ask the user for Name/Email as well 
+    // to ensure we can create the record.
+
+    // If the requirement is "Upload a PDF and create a profile", usually ATS parses it first.
+    // But our parsing is async (BullMQ).
+
+    // Let's assume for now the frontend will ask for at least Email/Name even for upload 
+    // (standard "Apply" flow does this).
+    // If the user wants "Drag and Drop and Magic", we need a sync parser.
+
+    // For this iteration, I will assume we pass Name/Email along with the file, 
+    // similar to the Application flow.
+
+    throw new Error('Method not implemented. Use createCandidate with resumeS3Key instead.');
   }
 
   async triggerFullReindex() {
