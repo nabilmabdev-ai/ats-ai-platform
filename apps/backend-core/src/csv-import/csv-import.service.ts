@@ -16,7 +16,7 @@ export class CsvImportService {
     private prisma: PrismaService,
     @InjectQueue('applications') private applicationsQueue: Queue,
     private httpService: HttpService,
-  ) {}
+  ) { }
 
   private async detectSeparator(filePath: string): Promise<string> {
     const stream = fs.createReadStream(filePath, { start: 0, end: 1000 });
@@ -40,58 +40,102 @@ export class CsvImportService {
       .replace(/[^a-z0-9]/g, '');
   }
 
-  async importCsv(filePath: string) {
+  async importCsv(filePath: string, originalFilename: string): Promise<string> {
+    // 1. Create Batch Record
+    const batch = await this.prisma.importBatch.create({
+      data: {
+        filename: originalFilename,
+        status: 'PENDING',
+      },
+    });
+
+    // 2. Start Processing in Background (Async)
+    this.processBatch(batch.id, filePath).catch((err) => {
+      this.logger.error(`Batch ${batch.id} failed fatally: ${err.message}`, err.stack);
+      this.prisma.importBatch.update({
+        where: { id: batch.id },
+        data: { status: 'FAILED' }
+      }).catch(e => this.logger.error('Failed to update batch status to FAILED'));
+    });
+
+    return batch.id;
+  }
+
+  // --- Async Background Processor ---
+  private async processBatch(batchId: string, filePath: string) {
     const separator = await this.detectSeparator(filePath);
-    this.logger.log(`Detected CSV Separator: "${separator}"`);
+    await this.prisma.importBatch.update({ where: { id: batchId }, data: { status: 'PROCESSING' } });
 
     const results: any[] = [];
-    const summary = {
-      total: 0,
-      imported: 0,
-      skipped: 0,
-      duplicatesUpdated: 0,
-      errors: 0,
-    };
 
-    return new Promise((resolve, reject) => {
+    // 1. Read all rows first to get count (memory efficient enough for typical CSVs, 
+    // for massive files we'd stream count first, but this is simpler for now)
+    await new Promise<void>((resolve, reject) => {
       fs.createReadStream(filePath)
-        .pipe(
-          csv({
-            separator: separator,
-            mapHeaders: ({ header }) => {
-              const clean = header.trim().replace(/^\ufeff/, '');
-              return this.normalizeKey(clean);
-            },
-          }),
-        )
+        .pipe(csv({ separator, mapHeaders: ({ header }) => this.normalizeKey(header.trim().replace(/^\ufeff/, '')) }))
         .on('data', (data) => results.push(data))
-        .on('end', async () => {
-          summary.total = results.length;
-          for (const row of results) {
-            try {
-              const processed = await this.processRow(row);
-              if (processed.skipped) summary.skipped++;
-              else if (processed.updated) summary.duplicatesUpdated++;
-              else summary.imported++;
-            } catch (error: any) {
-              this.logger.error(
-                `Error processing row: ${error.message}`,
-                error.stack,
-              );
-              summary.errors++;
-            }
-          }
-          try {
-            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-          } catch (e) {}
-          resolve(summary);
-        })
-        .on('error', (error) => reject(error));
+        .on('end', () => resolve())
+        .on('error', reject);
     });
+
+    const total = results.length;
+    await this.prisma.importBatch.update({ where: { id: batchId }, data: { total } });
+
+    let processedCount = 0;
+    let errorCount = 0;
+    const errorLog: any[] = [];
+
+    // 2. Iterate and Process
+    for (const row of results) {
+      // Check for cancellation every row (granular control)
+      const currentBatch = await this.prisma.importBatch.findUnique({ where: { id: batchId } });
+      if (currentBatch?.status === 'CANCELLED') {
+        this.logger.log(`Batch ${batchId} was cancelled. Stopping processing.`);
+        break;
+      }
+
+      try {
+        const result = await this.processRow(row, batchId);
+        if (!result.skipped) processedCount++;
+      } catch (error: any) {
+        errorCount++;
+        errorLog.push({ row: processedCount + errorCount, message: error.message });
+      }
+
+      // Update progress every 10 rows or at end
+      if ((processedCount + errorCount) % 10 === 0 || (processedCount + errorCount) === total) {
+        await this.prisma.importBatch.update({
+          where: { id: batchId },
+          data: { processed: processedCount + errorCount, errors: errorCount }
+        });
+      }
+    }
+
+    // 3. Finalize Status
+    const finalBatch = await this.prisma.importBatch.findUnique({ where: { id: batchId } });
+    if (finalBatch?.status !== 'CANCELLED') {
+      await this.prisma.importBatch.update({
+        where: { id: batchId },
+        data: {
+          status: 'COMPLETED',
+          processed: processedCount + errorCount,
+          errors: errorCount,
+          errorLog: errorLog as any
+        }
+      });
+    }
+
+    // Cleanup file
+    try {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    } catch (e) {
+      this.logger.warn(`Failed to cleanup temp file: ${filePath}`);
+    }
   }
 
   private async processRow(
     row: any,
+    batchId: string
   ): Promise<{ skipped: boolean; updated: boolean }> {
     if (!this.isMoroccoCandidate(row)) return { skipped: true, updated: false };
 
@@ -171,6 +215,7 @@ export class CsvImportService {
         ...(resumePath ? { resumeS3Key: resumePath } : {}),
         location,
         updatedAt: new Date(),
+        importBatchId: batchId // Link cand update to this batch (optional but useful)
       },
       create: {
         email,
@@ -179,6 +224,7 @@ export class CsvImportService {
         phone,
         resumeS3Key: resumePath,
         location,
+        importBatchId: batchId // Link cand creation to this batch
       },
     });
 
@@ -203,6 +249,7 @@ export class CsvImportService {
           coverLetterS3Key: coverLetterPath || existingApp.coverLetterS3Key,
           metadata: metadata,
           aiParsingError: false, // Reset error to allow retrying
+          importBatchId: batchId // Link to current batch
         },
       });
 
@@ -221,6 +268,7 @@ export class CsvImportService {
           coverLetterS3Key: coverLetterPath,
           metadata: metadata,
           tags: ['imported'],
+          importBatchId: batchId // Link to current batch
         },
       });
       queueJobData.applicationId = newApp.id;
@@ -275,7 +323,7 @@ export class CsvImportService {
               )
               .join(' ');
           }
-        } catch (e) {}
+        } catch (e) { }
       }
     }
     return title && title !== '00' ? title : 'General Import';
@@ -312,7 +360,7 @@ export class CsvImportService {
       type: row['areyoulookingforfulltimeorparttime'],
       location_pref:
         row[
-          'whatisyourpreferredworklocationpleaseselectoneofthefollowingoptions'
+        'whatisyourpreferredworklocationpleaseselectoneofthefollowingoptions'
         ],
       comm_lang: row['whatisyourpreferredlanguageofcommunication'],
     };
@@ -434,15 +482,52 @@ export class CsvImportService {
 
           try {
             if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-          } catch (e) {}
+          } catch (e) { }
           resolve({ totalCandidates, missingJobs: Array.from(missingJobs) });
         })
         .on('error', (err) => {
           try {
             if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-          } catch (e) {}
+          } catch (e) { }
           reject(err);
         });
+    });
+  }
+
+  async cancelBatch(batchId: string) {
+    return this.prisma.importBatch.update({
+      where: { id: batchId },
+      data: { status: 'CANCELLED' }
+    });
+  }
+
+  async getBatch(batchId: string) {
+    return this.prisma.importBatch.findUnique({ where: { id: batchId } });
+  }
+
+  async getBatches() {
+    return this.prisma.importBatch.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 20
+    });
+  }
+
+  async deleteBatch(batchId: string) {
+    // 1. Find all applications created by this batch
+    const applications = await this.prisma.application.findMany({
+      where: { importBatchId: batchId },
+      select: { id: true, candidateId: true }
+    });
+
+    // 2. Delete applications
+    await this.prisma.application.deleteMany({
+      where: { importBatchId: batchId }
+    });
+
+    this.logger.log(`Deleted applications for batch ${batchId}`);
+
+    return this.prisma.importBatch.delete({
+      where: { id: batchId }
     });
   }
 }

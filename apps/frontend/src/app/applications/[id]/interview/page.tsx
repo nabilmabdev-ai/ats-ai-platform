@@ -72,6 +72,9 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
   // Template State
   const [availableTemplates, setAvailableTemplates] = useState<QuestionTemplate[]>([]);
   const [templateSearch, setTemplateSearch] = useState('');
+
+  // Decision Confirmation State
+  const [decisionConfirmation, setDecisionConfirmation] = useState<'ADVANCE' | 'REJECT' | null>(null);
   const [isTemplateDropdownOpen, setIsTemplateDropdownOpen] = useState(false);
 
   // Fetch templates
@@ -377,6 +380,39 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
     }
   };
 
+  // Removed state from here
+
+  const handleDecision = async (decision: 'ADVANCE' | 'REJECT') => {
+    // Removed native confirm, handling via Modal now
+
+    try {
+      const interviewsRes = await fetch(`${API_URL}/interviews/application/${appId}`);
+      const interviews = await interviewsRes.json();
+      const interviewId = interviews[0]?.id;
+
+      if (!interviewId) {
+        addToast("No active interview session found.", 'error');
+        return;
+      }
+
+      const res = await fetch(`${API_URL}/interviews/${interviewId}/decision`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision })
+      });
+
+      if (res.ok) {
+        addToast(`Candidate ${decision === 'ADVANCE' ? 'Advanced to Offer' : 'Rejected'}`, 'success');
+        router.push('/dashboard');
+      } else {
+        addToast('Failed to process decision', 'error');
+      }
+    } catch (e) {
+      console.error(e);
+      addToast('Error processing decision', 'error');
+    }
+  };
+
   if (!app) return (
     <div className="min-h-screen flex items-center justify-center bg-[var(--color-background)]">
       <div className="flex flex-col items-center gap-4">
@@ -611,6 +647,88 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
                 >
                   {isSavingScorecard ? 'Saving Scorecard...' : 'Submit Evaluation'}
                 </button>
+
+                {/* --- DECISION WORKFLOW --- */}
+                <div className="mt-12 pt-8 border-t border-[var(--color-border)]">
+                  <h3 className="text-lg font-bold text-[var(--color-text-dark)] mb-4 text-center">Final Decision</h3>
+                  <p className="text-sm text-[var(--color-text-soft)] text-center mb-6">
+                    Ready to move this candidate forward? This will update their application status immediately.
+                  </p>
+
+                  <div className="flex gap-4">
+                    <button
+                      onClick={() => setDecisionConfirmation('REJECT')}
+                      className="flex-1 py-3 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-white text-[var(--color-text-soft)] font-bold hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-all flex items-center justify-center gap-2"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clipRule="evenodd" />
+                      </svg>
+                      Reject Candidate
+                    </button>
+                    <button
+                      onClick={() => setDecisionConfirmation('ADVANCE')}
+                      className="flex-1 py-3 rounded-[var(--radius-lg)] btn-primary flex items-center justify-center gap-2 shadow-[var(--shadow-glow)] transform hover:-translate-y-0.5 transition-all"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
+                      </svg>
+                      Advance to Offer
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* --- DECISION CONFIRMATION MODAL --- */}
+            {decisionConfirmation && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+                <div className="bg-white rounded-[var(--radius-xl)] shadow-[var(--shadow-modal)] p-8 max-w-md w-full mx-4 transform transition-all animate-modal-in">
+                  <div className="text-center mb-6">
+                    <div className={`
+                      w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4
+                      ${decisionConfirmation === 'ADVANCE' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}
+                    `}>
+                      {decisionConfirmation === 'ADVANCE' ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                    </div>
+                    <h3 className="text-xl font-bold text-[var(--color-text-dark)] mb-2">
+                      {decisionConfirmation === 'ADVANCE' ? 'Extend Offer?' : 'Reject Candidate?'}
+                    </h3>
+                    <p className="text-[var(--color-text-soft)] text-sm leading-relaxed">
+                      {decisionConfirmation === 'ADVANCE'
+                        ? 'This will update the status to OFFER and allow you to draft the offer letter. Are you sure?'
+                        : 'This will update the status to REJECTED. This action is immediate. Are you sure?'}
+                    </p>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setDecisionConfirmation(null)}
+                      className="flex-1 py-2.5 rounded-[var(--radius-lg)] border border-[var(--color-border)] text-[var(--color-text-soft)] font-bold hover:bg-[var(--color-neutral-50)] transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleDecision(decisionConfirmation);
+                        setDecisionConfirmation(null);
+                      }}
+                      className={`
+                        flex-1 py-2.5 rounded-[var(--radius-lg)] text-white font-bold shadow-md transition-all
+                        ${decisionConfirmation === 'ADVANCE' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}
+                      `}
+                    >
+                      Confirm
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 

@@ -24,11 +24,12 @@ interface Job {
 export default async function Dashboard({
   searchParams
 }: {
-  searchParams: Promise<{ jobId: string; showClosed?: string }>
+  searchParams: Promise<{ jobId: string; showClosed?: string; search?: string }>
 }) {
   const resolvedSearchParams = await searchParams;
   const selectedJobId = resolvedSearchParams.jobId || 'ALL';
   const showClosed = resolvedSearchParams.showClosed === 'true';
+  const searchQuery = resolvedSearchParams.search || '';
 
   let jobsData: Job[] = [];
   let appsData: Application[] = [];
@@ -48,7 +49,9 @@ export default async function Dashboard({
     // 2. Fetch Applications
     const jobIdQuery = selectedJobId !== 'ALL' ? `&jobId=${selectedJobId}` : '';
     const closedQuery = showClosed ? '&includeClosed=true' : '';
-    const appsRes = await fetch(`${baseUrl}/applications?page=1&limit=${PAGE_SIZE}${jobIdQuery}${closedQuery}`, {
+    const searchQueryStr = searchQuery ? `&search=${encodeURIComponent(searchQuery)}` : '';
+
+    const appsRes = await fetch(`${baseUrl}/applications?page=1&limit=${PAGE_SIZE}${jobIdQuery}${closedQuery}${searchQueryStr}`, {
       headers,
       cache: 'no-store',
       next: { tags: ['applications'] }
@@ -86,6 +89,7 @@ export default async function Dashboard({
       selectedJobId={selectedJobId}
       showClosed={showClosed}
       totalCount={totalCount}
+      initialSearch={searchQuery}
     />
   );
 }

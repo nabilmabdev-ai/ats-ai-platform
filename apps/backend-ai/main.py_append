@@ -1,0 +1,7 @@
+
+if __name__ == "__main__":
+    import uvicorn
+    # This block is critical for Windows multiprocessing support (spawn)
+    # It ensures that when sub-processes are spawned (e.g. by uvicorn workers or multiprocess tools),
+    # they don't recursively start a new server instance.
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

@@ -24,7 +24,7 @@ export class InterviewsService {
     private configService: ConfigService,
     private emailService: EmailService,
     private calendarService: CalendarService,
-  ) {}
+  ) { }
 
   // --- NEW: Find All (For Dashboard) ---
   async findAll(page: number = 1, limit: number = 10, startDate?: Date) {
@@ -389,5 +389,35 @@ export class InterviewsService {
         questions: questions,
       },
     });
+  }
+
+  async processDecision(interviewId: string, decision: 'ADVANCE' | 'REJECT') {
+    const interview = await this.prisma.interview.findUnique({
+      where: { id: interviewId },
+      include: { application: true }
+    });
+
+    if (!interview) throw new NotFoundException('Interview not found');
+
+    // 1. Update Application Status
+    const newStatus = decision === 'ADVANCE' ? 'OFFER' : 'REJECTED';
+
+    await this.prisma.application.update({
+      where: { id: interview.applicationId },
+      data: { status: newStatus }
+    });
+
+    // 2. Mark Interview as COMPLETED if not already
+    if (interview.status !== 'COMPLETED') {
+      await this.prisma.interview.update({
+        where: { id: interviewId },
+        data: { status: 'COMPLETED' }
+      });
+    }
+
+    // 3. (Optional) If Advance, Create Draft Offer could go here
+    // For now, just moving status is sufficient as per plan.
+
+    return { success: true, newStatus };
   }
 }

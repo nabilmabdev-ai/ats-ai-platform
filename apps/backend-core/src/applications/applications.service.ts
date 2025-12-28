@@ -27,7 +27,7 @@ export class ApplicationsService {
     private emailService: EmailService,
     private interviewsService: InterviewsService,
     @InjectQueue('applications') private applicationsQueue: Queue,
-  ) {}
+  ) { }
 
   async retryFailedParsings() {
     // 1. Find all applications marked with error
@@ -344,9 +344,19 @@ export class ApplicationsService {
     page: number = 1,
     limit: number = 10,
     includeClosed: boolean = false,
+    search?: string,
   ) {
     const whereClause: any = {};
     if (jobId) whereClause.jobId = jobId;
+
+    if (search) {
+      whereClause.candidate = {
+        OR: [
+          { firstName: { contains: search, mode: 'insensitive' } },
+          { lastName: { contains: search, mode: 'insensitive' } },
+        ],
+      };
+    }
 
     // --- NEW: Filter out closed jobs if not explicitly included ---
     // Only apply this filter if we are NOT filtering by a specific job (Global View)

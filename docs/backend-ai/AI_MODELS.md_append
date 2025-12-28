@@ -1,0 +1,13 @@
+
+## 9. Deployment & Compatibility
+
+### Windows Support
+When running the `apps/backend-ai` service on Windows (development or production), you **must** use the standard Python entry point guard to support `multiprocessing` spawn methods:
+
+```python
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(...)
+```
+
+Failure to include this will result in infinite process spawning loops when `uvicorn` reloads or when worker processes start.

@@ -35,9 +35,10 @@ interface DashboardDataFetcherProps {
   selectedJobId: string;
   showClosed: boolean;
   totalCount: number;
+  initialSearch?: string;
 }
 
-export default function DashboardDataFetcher({ jobs, initialApplications, selectedJobId, showClosed, totalCount }: DashboardDataFetcherProps) {
+export default function DashboardDataFetcher({ jobs, initialApplications, selectedJobId, showClosed, totalCount, initialSearch }: DashboardDataFetcherProps) {
   return (
     <PipelineBoard
       jobs={jobs}
@@ -45,6 +46,7 @@ export default function DashboardDataFetcher({ jobs, initialApplications, select
       selectedJobId={selectedJobId}
       showClosed={showClosed}
       totalCount={totalCount}
+      initialSearch={initialSearch}
     />
   );
 }

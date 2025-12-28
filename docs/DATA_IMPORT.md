@@ -54,14 +54,42 @@ The importer automatically maps specific columns into the `metadata` JSON field 
     *   It identifies **Missing Job Titles**.
     *   It counts candidates passing the **Location Filter**.
     *   *Result:* User sees a summary and can click "Create Missing Jobs" before proceeding.
-3.  **Ingestion Phase:**
-    *   Rows are processed sequentially.
+3.  **Batch Creation & Ingestion Phase:**
+    *   When confirmed, an **Import Batch** record is created in the database.
+    *   The browser receives a Batch ID and begins polling for progress.
+    *   **Background Processing:** The server processes rows asynchronously.
     *   **Resume Download:** If `resumecv` contains a valid URL, the file is streamed to the AI Service (`apps/backend-ai`) for parsing.
     *   **Deduplication:** The system performs an `upsert` on the `Candidate` table using the email address.
 
 ---
 
-## 3. Business Logic & Filters
+## 3. Managing Imports (Stop & Delete)
+
+The new Async Import System provides granular control over long-running ingestion tasks.
+
+### Monitoring Progress
+The "Import History" panel on the right side of the page shows all recent import batches.
+*   **Status:** `PENDING` -> `PROCESSING` -> `COMPLETED`.
+*   **Progress Bar:** Shows real-time row processing status.
+*   **Errors:** Counts rows that failed validation.
+
+### Stopping an Import
+You can halt a running import at any time.
+1.  Click the **Stop (Red Circle)** icon next to a `PROCESSING` batch.
+2.  The system will stop processing *new* rows immediately.
+3.  Rows already processed are preserved.
+
+### Deleting an Import
+You can revert an import if needed.
+1.  Click the **Trash** icon next to any batch.
+2.  **Effect:**
+    *   The `ImportBatch` record is deleted.
+    *   All `Application` records created *specifically* by this batch are **deleted**.
+    *   `Candidate` profiles are **preserved** (to safely handle shared/updated candidates) but are unlinked from the deleted batch.
+
+---
+
+## 4. Business Logic & Filters
 
 > **⚠️ Critical:** The importer contains hardcoded logic to filter candidates based on location.
 
@@ -85,7 +113,7 @@ The system tries to find a `Job` in the database where `title` matches the CSV `
 
 ---
 
-## 4. "Silent Mode" Deduplication
+## 5. "Silent Mode" Deduplication
 
 To prevent database pollution, the importer uses specific strategies when it encounters existing data.
 
@@ -103,7 +131,7 @@ If a resume URL is provided, the system queues a **Background Job** (`process-ap
 
 ---
 
-## 5. Sample CSV Template
+## 6. Sample CSV Template
 
 Copy the header row below to prepare your data for import.
 

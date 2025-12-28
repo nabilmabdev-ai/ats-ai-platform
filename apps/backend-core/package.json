@@ -22,9 +22,11 @@
     "seed:foundation": "ts-node prisma/seed-foundation.ts",
     "seed:jobs": "ts-node prisma/seed-jobs.ts",
     "seed:candidates": "ts-node prisma/seed-candidates.ts",
-    "seed:ops": "ts-node prisma/seed-interviews-offers.ts"
+    "seed:ops": "ts-node prisma/seed-interviews-offers.ts",
+    "seed:hybrid": "ts-node prisma/seed-hybrid.ts"
   },
   "dependencies": {
+    "@faker-js/faker": "^10.1.0",
     "@nestjs/axios": "^4.0.1",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.0.1",

@@ -16,7 +16,7 @@ import { SaveAiScorecardDto } from './dto/save-ai-scorecard.dto';
 
 @Controller('interviews')
 export class InterviewsController {
-  constructor(private readonly interviewsService: InterviewsService) {}
+  constructor(private readonly interviewsService: InterviewsService) { }
 
   // --- NEW: Get All Interviews (Calendar View) ---
   @Get()
@@ -89,5 +89,10 @@ export class InterviewsController {
   @Post('smart-schedule-run')
   runSmartSchedule(@Body() body: { applicationIds?: string[] }) {
     return this.interviewsService.runSmartSchedule(body.applicationIds);
+  }
+
+  @Post(':id/decision')
+  processDecision(@Param('id') id: string, @Body() body: { decision: 'ADVANCE' | 'REJECT' }) {
+    return this.interviewsService.processDecision(id, body.decision);
   }
 }

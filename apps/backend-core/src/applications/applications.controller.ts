@@ -29,7 +29,7 @@ import {
 
 @Controller('applications')
 export class ApplicationsController {
-  constructor(private readonly applicationsService: ApplicationsService) {}
+  constructor(private readonly applicationsService: ApplicationsService) { }
 
   // [NEW] Check for failures (for the frontend badge)
   @Get('health/parsing-failures')
@@ -152,6 +152,7 @@ export class ApplicationsController {
     @Query('page', new ParseIntPipe({ optional: true })) page: number = 1,
     @Query('limit', new ParseIntPipe({ optional: true })) limit: number = 10,
     @Query('includeClosed') includeClosed?: string,
+    @Query('search') search?: string,
   ) {
     const showClosed = includeClosed === 'true';
     return this.applicationsService.findAll(
@@ -160,6 +161,7 @@ export class ApplicationsController {
       page,
       limit,
       showClosed,
+      search,
     );
   }
 

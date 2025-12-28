@@ -8,7 +8,7 @@ import CandidateCard from '../components/CandidateCard';
 import JobSelector from '../components/JobSelector';
 import PeriodSelector, { PeriodOption } from '../components/PeriodSelector';
 import SystemHealthBanner from '../components/SystemHealthBanner';
-import { UserPlus } from 'lucide-react';
+import { UserPlus, Search, X } from 'lucide-react';
 import AddCandidateModal from '../components/AddCandidateModal';
 
 // --- Types ---
@@ -59,6 +59,7 @@ interface PipelineBoardProps {
     selectedJobId: string;
     showClosed: boolean;
     totalCount: number;
+    initialSearch?: string;
 }
 
 // 1. Add an EyeOff Icon for the toggle
@@ -75,7 +76,7 @@ const EyeOffIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
-export default function PipelineBoard({ jobs, initialApplications, selectedJobId, showClosed, totalCount }: PipelineBoardProps) {
+export default function PipelineBoard({ jobs, initialApplications, selectedJobId, showClosed, totalCount, initialSearch = '' }: PipelineBoardProps) {
     const router = useRouter();
     const searchParams = useSearchParams();
     const [period, setPeriod] = useState<PeriodOption>('all');
@@ -85,18 +86,48 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
     // 2. New State for filtering
     const [showRejected, setShowRejected] = useState(false);
 
+    // Search State
+    const [searchTerm, setSearchTerm] = useState(initialSearch);
+    const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(initialSearch);
+
     // State for pagination
     const [applications, setApplications] = useState<Application[]>(initialApplications);
     const [page, setPage] = useState(1);
     const [hasMore, setHasMore] = useState(initialApplications.length < totalCount);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
 
+    // Debounce Logic
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedSearchTerm(searchTerm);
+        }, 500);
+        return () => clearTimeout(handler);
+    }, [searchTerm]);
+
     // Update local state when initial props change (e.g. filter change)
     useEffect(() => {
         setApplications(initialApplications);
         setPage(1);
         setHasMore(initialApplications.length < totalCount);
-    }, [initialApplications, totalCount]);
+        setSearchTerm(initialSearch);
+    }, [initialApplications, totalCount, initialSearch]);
+
+    // Handle Search URL Update
+    useEffect(() => {
+        const currentSearch = searchParams.get('search') || '';
+        if (debouncedSearchTerm !== currentSearch) {
+            const params = new URLSearchParams(searchParams);
+            if (debouncedSearchTerm) {
+                params.set('search', debouncedSearchTerm);
+            } else {
+                params.delete('search');
+            }
+            params.delete('page');
+            if (selectedJobId !== 'ALL') params.set('jobId', selectedJobId);
+            if (showClosed) params.set('showClosed', 'true');
+            router.push(`/dashboard?${params.toString()}`);
+        }
+    }, [debouncedSearchTerm, router, searchParams, selectedJobId, showClosed]);
 
     const handleJobSelect = (jobId: string) => {
         const params = new URLSearchParams(searchParams);
@@ -179,8 +210,9 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
             const nextPage = page + 1;
             const jobIdQuery = selectedJobId !== 'ALL' ? `&jobId=${selectedJobId}` : '';
             const closedQuery = showClosed ? '&includeClosed=true' : '';
+            const searchQueryStr = debouncedSearchTerm ? `&search=${encodeURIComponent(debouncedSearchTerm)}` : '';
 
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/applications?page=${nextPage}&limit=${PAGE_SIZE}${jobIdQuery}${closedQuery}`);
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/applications?page=${nextPage}&limit=${PAGE_SIZE}${jobIdQuery}${closedQuery}${searchQueryStr}`);
 
             if (!res.ok) throw new Error('Failed to fetch more applications');
 
@@ -334,6 +366,27 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
             <div className="flex items-center justify-between p-5 border-b border-gray-200/60">
                 {/* Filter Bar Container */}
                 <div className="bg-white border border-[var(--color-border)] rounded-[var(--radius-lg)] shadow-sm px-4 py-2 flex items-center gap-3">
+
+                    {/* NEW: Search Bar */}
+                    <div className="relative">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input
+                            type="text"
+                            placeholder="Search..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="pl-9 pr-3 py-1.5 text-sm border border-gray-200 rounded-md w-48 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] transition-all"
+                        />
+                        {searchTerm && (
+                            <button
+                                onClick={() => setSearchTerm('')}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                            >
+                                <X className="w-3 h-3" />
+                            </button>
+                        )}
+                    </div>
+
                     <JobSelector jobs={jobs} selectedJobId={selectedJobId} onSelectJob={handleJobSelect} />
                     <PeriodSelector selectedPeriod={period} onSelectPeriod={handlePeriodChange} />
                     <div className="h-6 w-px bg-gray-200 mx-1"></div>

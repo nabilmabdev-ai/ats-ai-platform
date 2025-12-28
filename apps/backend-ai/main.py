@@ -121,12 +121,15 @@ def clean_and_parse_json(text: str):
         pass
 
     # 2. Cleanup Markdown Code Blocks
+    # Remove ```json ... ``` wrappers
     text = re.sub(r'^```(\w+)?\s*', '', text, flags=re.MULTILINE)
     text = re.sub(r'\s*```$', '', text, flags=re.MULTILINE)
+    
+    # 3. Aggressive Strip (sometimes leading text exists)
+    candidate = text.strip()
 
-    # 3. Braced-Counting Extractor
+    # 4. Braced-Counting Extractor
     # Finds the first outer-most JSON object or array and extracts it exactly.
-    # This handles "Here is your JSON: { ... } Thanks!" correctly.
     try:
         start_index = -1
         stack = []
@@ -134,7 +137,7 @@ def clean_and_parse_json(text: str):
         escape = False
         
         # Locate first valid opener
-        for i, char in enumerate(text):
+        for i, char in enumerate(candidate):
             if char == '{' or char == '[':
                 start_index = i
                 stack.append(char)
@@ -143,8 +146,8 @@ def clean_and_parse_json(text: str):
         if start_index == -1:
             raise ValueError("No JSON start found")
 
-        for i in range(start_index + 1, len(text)):
-            char = text[i]
+        for i in range(start_index + 1, len(candidate)):
+            char = candidate[i]
             
             # Handle String State (ignore braces inside strings)
             if char == '"' and not escape:
@@ -168,25 +171,24 @@ def clean_and_parse_json(text: str):
                         stack.pop()
                         # If stack is empty, we found the closing brace of the root object
                         if not stack:
-                            candidate = text[start_index : i + 1]
-                            return json.loads(candidate)
+                            final_json_text = candidate[start_index : i + 1]
+                            return json.loads(final_json_text)
                     else:
-                        # Mismatched brace - might be malformed, abort smart parse
+                        # Mismatched brace - might be malformed
                         break
     except Exception:
         pass # Fallback to loose regex
 
-    # 4. Fallback: Loose Regex for { ... }
-    # This is less accurate but catches simple cases if the brace counter failed
+    # 5. Fallback: Loose Regex for { ... }
     try:
-        start = text.find('{')
-        end = text.rfind('}')
+        start = candidate.find('{')
+        end = candidate.rfind('}')
         if start != -1 and end != -1:
-            return json.loads(text[start:end+1])
+            return json.loads(candidate[start:end+1])
     except:
         pass
     
-    # 5. Last Resort: Log and Fail
+    # 6. Last Resort: Log and Fail
     logger.error(f"Failed to parse JSON: {text[:500]}...")
     try:
         with open("json_parse_error.log", "a", encoding="utf-8") as f:
@@ -308,13 +310,22 @@ def screen_candidate(request: ScreeningRequest):
         3. Identify 3-5 "Pros" (Key strengths relative to the job).
         4. Identify 3-5 "Cons" (Weaknesses or gaps relative to the job).
         5. Generate a "Screening Summary" justifying the score.
+
+        CONSTRAINTS:
+        - Output strictly valid JSON.
+        - Do NOT repeat phrases or sentences in the summary.
+        - Be concise and professional.
         """
         
         response = model.generate_content(
             prompt,
             generation_config=genai.GenerationConfig(
                 response_mime_type="application/json",
-                response_schema=ScreeningResponse
+                response_schema=ScreeningResponse,
+                # Stop repetition loops
+                stop_sequences=["\n\n\n"], 
+                max_output_tokens=4096,
+                temperature=0.4
             )
         )
         return clean_and_parse_json(response.text)
@@ -761,6 +772,7 @@ def analyze_interview(request: InterviewAnalysisRequest):
         IMPORTANT:
         - Be concise.
         - Do NOT repeat the same points.
+        - Do NOT repeat phrases like "I do not recommend" excessively.
         - Output strictly valid JSON.
         """
         
@@ -769,7 +781,7 @@ def analyze_interview(request: InterviewAnalysisRequest):
             generation_config=genai.GenerationConfig(
                 response_mime_type="application/json",
                 response_schema=InterviewAnalysisResponse,
-                max_output_tokens=2048, # Increased to prevent truncation
+                max_output_tokens=4096, # Increased to prevent truncation
                 temperature=0.7
             )
         )
@@ -873,3 +885,9 @@ def generate_interview_questions(request: QuestionGenRequest):
     except Exception as e:
         logger.error(f"Question Gen Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+if __name__ == "__main__":
+    import uvicorn
+    # This block is critical for Windows multiprocessing support (spawn)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

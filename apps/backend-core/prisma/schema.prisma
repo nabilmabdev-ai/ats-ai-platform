@@ -214,6 +214,9 @@ model Candidate {
   updatedAt DateTime @default(now()) @updatedAt
 
   applications Application[]
+
+  importBatchId String?
+  importBatch   ImportBatch? @relation(fields: [importBatchId], references: [id])
 }
 
 model Application {
@@ -247,6 +250,9 @@ model Application {
   interviews  Interview[]
   comments    Comment[]
   offer       Offer?
+
+  importBatchId String?
+  importBatch   ImportBatch? @relation(fields: [importBatchId], references: [id])
 
   @@unique([jobId, candidateId])
 }
@@ -372,4 +378,21 @@ model QuestionTemplate {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model ImportBatch {
+  id        String   @id @default(uuid())
+  filename  String
+  status    String   // PENDING, PROCESSING, COMPLETED, FAILED, CANCELLED
+  processed Int      @default(0)
+  total     Int      @default(0)
+  errors    Int      @default(0)
+  
+  errorLog  Json?    // Array of error details
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  applications Application[]
+  candidates   Candidate[]
 }

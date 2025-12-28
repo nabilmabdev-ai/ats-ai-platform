@@ -1,9 +1,19 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/components/AuthProvider';
-import { Upload, FileText, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { Upload, FileText, CheckCircle, AlertCircle, Loader2, XCircle, Trash2, RefreshCcw, StopCircle } from 'lucide-react';
 import axios from 'axios';
+
+interface ImportBatch {
+    id: string;
+    filename: string;
+    status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+    processed: number;
+    total: number;
+    errors: number;
+    createdAt: string;
+}
 
 export default function ImportCandidatesPage() {
     const { token } = useAuth();
@@ -11,19 +21,64 @@ export default function ImportCandidatesPage() {
     const [isUploading, setIsUploading] = useState(false);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [analysisResult, setAnalysisResult] = useState<{ totalCandidates: number; missingJobs: string[] } | null>(null);
-    const [summary, setSummary] = useState<{
-        total: number;
-        imported: number;
-        skipped: number;
-        duplicatesUpdated: number;
-        errors: number;
-    } | null>(null);
     const [error, setError] = useState<string | null>(null);
+
+    // Async Import State
+    const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
+    const [batches, setBatches] = useState<ImportBatch[]>([]);
+
+    const fetchBatches = useCallback(async () => {
+        if (!token) return;
+        try {
+            const { data } = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/csv-import`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setBatches(data);
+            // If the most recent batch is running, set it as active
+            const recent = data[0];
+            if (recent && (recent.status === 'PENDING' || recent.status === 'PROCESSING')) {
+                setActiveBatchId(recent.id);
+            }
+        } catch (err) {
+            console.error('Failed to fetch batches', err);
+        }
+    }, [token]);
+
+    useEffect(() => {
+        fetchBatches();
+    }, [fetchBatches]);
+
+    // Polling for active batch
+    useEffect(() => {
+        if (!activeBatchId || !token) return;
+
+        const interval = setInterval(async () => {
+            try {
+                const { data } = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/csv-import/${activeBatchId}`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+
+                // Update the specific batch in the list
+                setBatches(prev => prev.map(b => b.id === activeBatchId ? data : b));
+
+                if (data.status !== 'PENDING' && data.status !== 'PROCESSING') {
+                    setActiveBatchId(null); // Stop polling
+                    if (data.status === 'COMPLETED') {
+                        // Optional: Show success toast
+                    }
+                }
+            } catch (err) {
+                console.error('Polling failed', err);
+                setActiveBatchId(null);
+            }
+        }, 1000); // Poll every second
+
+        return () => clearInterval(interval);
+    }, [activeBatchId, token]);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             setFile(e.target.files[0]);
-            setSummary(null);
             setAnalysisResult(null);
             setError(null);
         }
@@ -67,7 +122,6 @@ export default function ImportCandidatesPage() {
                 { titles: analysisResult.missingJobs },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            // Clear missing jobs from view or show success
             setAnalysisResult(prev => prev ? { ...prev, missingJobs: [] } : null);
             alert('Jobs created successfully! You can now proceed with import.');
         } catch (err: any) {
@@ -95,8 +149,11 @@ export default function ImportCandidatesPage() {
                     },
                 }
             );
-            setSummary(response.data);
-            setAnalysisResult(null); // Clear analysis view
+            // Start tracking the new batch
+            setActiveBatchId(response.data.batchId);
+            setAnalysisResult(null);
+            setFile(null); // Clear input
+            fetchBatches(); // Refresh list immediately
         } catch (err: any) {
             console.error('Upload failed:', err);
             setError(err.response?.data?.message || 'Failed to upload CSV');
@@ -105,170 +162,179 @@ export default function ImportCandidatesPage() {
         }
     };
 
+    const handleCancelConfig = async (batchId: string) => {
+        if (!confirm('Are you sure you want to stop this import?')) return;
+        try {
+            await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/csv-import/${batchId}/cancel`, {}, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            fetchBatches(); // Update UI
+        } catch (e) { console.error(e); }
+    };
+
+    const handleDeleteBatch = async (batchId: string) => {
+        if (!confirm('WARNING: This will delete the batch record AND all applications created by it. This cannot be undone. Create candidates will remain but be unlinked. Continue?')) return;
+        try {
+            await axios.delete(`${process.env.NEXT_PUBLIC_API_URL}/csv-import/${batchId}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            fetchBatches(); // Remove from UI
+        } catch (e) { alert('Failed to delete batch'); }
+    };
+
     return (
-        <div className="p-8 max-w-4xl mx-auto">
+        <div className="p-8 max-w-6xl mx-auto">
             <div className="mb-8">
                 <h1 className="text-2xl font-bold text-gray-900">Import Candidates</h1>
                 <p className="text-gray-500 mt-2">
-                    Upload a daily CSV export to ingest candidates. Only candidates located in Morocco will be imported.
+                    Upload a CSV to import candidates (Morocco only). Imports run in the background.
                 </p>
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
-                <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-12 bg-gray-50 hover:bg-gray-100 transition-colors">
-                    <Upload className="w-12 h-12 text-gray-400 mb-4" />
-                    <p className="text-lg font-medium text-gray-700 mb-2">
-                        {file ? file.name : 'Click to upload or drag and drop'}
-                    </p>
-                    <p className="text-sm text-gray-500 mb-6">CSV files only</p>
-
-                    <input
-                        type="file"
-                        accept=".csv"
-                        onChange={handleFileChange}
-                        className="hidden"
-                        id="csv-upload"
-                    />
-                    <label
-                        htmlFor="csv-upload"
-                        className="px-6 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 cursor-pointer transition-all shadow-sm"
-                    >
-                        Select File
-                    </label>
-                </div>
-
-                {!analysisResult && !summary && (
-                    <div className="mt-6 flex justify-end">
-                        <button
-                            onClick={handleAnalyze}
-                            disabled={isAnalyzing || !file}
-                            className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
-                        >
-                            {isAnalyzing ? (
-                                <>
-                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                    Analyzing...
-                                </>
-                            ) : (
-                                <>
-                                    <FileText className="w-4 h-4" />
-                                    Analyze File
-                                </>
-                            )}
-                        </button>
-                    </div>
-                )}
-
-                {analysisResult && (
-                    <div className="mt-8 border-t border-gray-100 pt-8 animate-fade-in">
-                        <h3 className="text-lg font-semibold text-gray-900 mb-4">Analysis Result</h3>
-                        <div className="mb-6">
-                            <p className="text-gray-700">Found <strong>{analysisResult.totalCandidates}</strong> potential candidates in Morocco.</p>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Left Col: Upload & Analyze */}
+                <div className="lg:col-span-1 space-y-6">
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                        <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-8 bg-gray-50 hover:bg-gray-100 transition-colors">
+                            <Upload className="w-10 h-10 text-gray-400 mb-4" />
+                            <p className="text-sm font-medium text-gray-700 mb-2 overflow-hidden text-ellipsis w-full text-center">
+                                {file ? file.name : 'Click to upload CSV'}
+                            </p>
+                            <input
+                                type="file"
+                                accept=".csv"
+                                onChange={handleFileChange}
+                                className="hidden"
+                                id="csv-upload"
+                            />
+                            <label
+                                htmlFor="csv-upload"
+                                className="px-4 py-2 bg-white border border-gray-300 rounded-md text-gray-700 text-sm font-medium hover:bg-gray-50 cursor-pointer shadow-sm mt-2"
+                            >
+                                Select File
+                            </label>
                         </div>
 
-                        {analysisResult.missingJobs.length > 0 ? (
-                            <div className="mb-6 p-4 bg-yellow-50 border border-yellow-100 rounded-lg">
-                                <div className="flex items-start gap-3">
-                                    <AlertCircle className="w-5 h-5 text-yellow-600 mt-0.5" />
-                                    <div>
-                                        <h4 className="font-medium text-yellow-800">Missing Jobs Found</h4>
-                                        <p className="text-sm text-yellow-700 mt-1">The following job titles in the CSV do not exist in the system:</p>
-                                        <ul className="mt-2 list-disc list-inside text-sm text-yellow-800">
-                                            {analysisResult.missingJobs.map(job => (
-                                                <li key={job}>{job}</li>
-                                            ))}
-                                        </ul>
-                                        <div className="mt-4 flex gap-3">
-                                            <button
-                                                onClick={handleBulkCreateJobs}
-                                                className="px-4 py-2 bg-yellow-600 text-white text-sm font-medium rounded-md hover:bg-yellow-700 transition-colors"
-                                            >
-                                                Create All Missing Jobs
-                                            </button>
-                                            <button
-                                                onClick={handleUpload}
-                                                className="px-4 py-2 bg-white border border-yellow-300 text-yellow-700 text-sm font-medium rounded-md hover:bg-yellow-50 transition-colors"
-                                            >
-                                                Proceed Anyway (Use Fallback)
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="mb-6 p-4 bg-green-50 border border-green-100 rounded-lg flex items-center gap-3">
-                                <CheckCircle className="w-5 h-5 text-green-600" />
-                                <span className="text-green-800 font-medium">All job titles match existing jobs!</span>
-                            </div>
-                        )}
-
-                        {analysisResult.missingJobs.length === 0 && (
-                            <div className="flex justify-end">
+                        {!analysisResult && (
+                            <div className="mt-4 flex justify-end">
                                 <button
-                                    onClick={handleUpload}
-                                    disabled={isUploading}
-                                    className="flex items-center gap-2 px-6 py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
+                                    onClick={handleAnalyze}
+                                    disabled={isAnalyzing || !file}
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
                                 >
-                                    {isUploading ? (
-                                        <>
-                                            <Loader2 className="w-4 h-4 animate-spin" />
-                                            Importing...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <CheckCircle className="w-4 h-4" />
-                                            Start Import
-                                        </>
-                                    )}
+                                    {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                                    Analyze File
                                 </button>
                             </div>
                         )}
-                    </div>
-                )}
 
-                {error && (
-                    <div className="mt-6 p-4 bg-red-50 text-red-700 rounded-lg flex items-center gap-3">
-                        <AlertCircle className="w-5 h-5" />
-                        {error}
-                    </div>
-                )}
-
-                {summary && (
-                    <div className="mt-8 border-t border-gray-100 pt-8">
-                        <h3 className="text-lg font-semibold text-gray-900 mb-4">Import Summary</h3>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                            <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
-                                <div className="text-2xl font-bold text-blue-600">{summary.total}</div>
-                                <div className="text-sm text-blue-700 font-medium">Total Rows</div>
-                            </div>
-                            <div className="p-4 bg-green-50 rounded-lg border border-green-100">
-                                <div className="text-2xl font-bold text-green-600">{summary.imported}</div>
-                                <div className="text-sm text-green-700 font-medium">Imported</div>
-                            </div>
-                            <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-100">
-                                <div className="text-2xl font-bold text-yellow-600">{summary.duplicatesUpdated}</div>
-                                <div className="text-sm text-yellow-700 font-medium">Updated</div>
-                            </div>
-                            <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
-                                <div className="text-2xl font-bold text-gray-600">{summary.skipped}</div>
-                                <div className="text-sm text-gray-700 font-medium">Skipped</div>
-                            </div>
-                        </div>
-                        {summary.errors > 0 && (
-                            <div className="mt-4 p-3 bg-red-50 text-red-600 text-sm rounded-md">
-                                {summary.errors} rows failed to process due to errors. Check server logs.
+                        {error && (
+                            <div className="mt-4 p-3 bg-red-50 text-red-700 text-sm rounded-lg flex items-center gap-2">
+                                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                                {error}
                             </div>
                         )}
-                        <div className="mt-6 flex justify-end">
-                            <button
-                                onClick={() => { setSummary(null); setFile(null); setAnalysisResult(null); }}
-                                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-                            >
-                                Import Another File
-                            </button>
+                    </div>
+
+                    {analysisResult && (
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 animate-fade-in">
+                            <h3 className="font-semibold text-gray-900 mb-2">Analysis Result</h3>
+                            <p className="text-sm text-gray-700 mb-4">Found <strong>{analysisResult.totalCandidates}</strong> potential candidates.</p>
+
+                            {analysisResult.missingJobs.length > 0 ? (
+                                <div className="p-3 bg-yellow-50 border border-yellow-100 rounded-md mb-4">
+                                    <h4 className="font-medium text-yellow-800 text-sm">Missing Jobs</h4>
+                                    <ul className="mt-1 list-disc list-inside text-xs text-yellow-800 max-h-32 overflow-y-auto">
+                                        {analysisResult.missingJobs.map(j => <li key={j}>{j}</li>)}
+                                    </ul>
+                                    <div className="mt-3 flex gap-2">
+                                        <button onClick={handleBulkCreateJobs} className="px-3 py-1.5 bg-yellow-600 text-white text-xs rounded hover:bg-yellow-700">Create All</button>
+                                        <button onClick={handleUpload} className="px-3 py-1.5 bg-white border border-yellow-300 text-yellow-700 text-xs rounded hover:bg-yellow-50">Ignore</button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="mb-4 text-sm text-green-700 flex items-center gap-2">
+                                    <CheckCircle className="w-4 h-4" /> All job titles exist.
+                                </div>
+                            )}
+
+                            {analysisResult.missingJobs.length === 0 && (
+                                <button
+                                    onClick={handleUpload}
+                                    disabled={isUploading}
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50"
+                                >
+                                    {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                                    Start Import
+                                </button>
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                {/* Right Col: Import History / Active Jobs */}
+                <div className="lg:col-span-2">
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                            <h3 className="font-semibold text-gray-900">Import History</h3>
+                            <button onClick={fetchBatches} className="p-1 hover:bg-gray-200 rounded-full text-gray-500"><RefreshCcw className="w-4 h-4" /></button>
+                        </div>
+
+                        <div className="divide-y divide-gray-100 max-h-[600px] overflow-y-auto">
+                            {batches.length === 0 ? (
+                                <div className="p-8 text-center text-gray-400 text-sm">No imports found</div>
+                            ) : (
+                                batches.map(batch => (
+                                    <div key={batch.id} className="p-4 hover:bg-gray-50 transition-colors">
+                                        <div className="flex justify-between items-start mb-2">
+                                            <div>
+                                                <h4 className="font-medium text-gray-900 text-sm">{batch.filename}</h4>
+                                                <p className="text-xs text-gray-500">{new Date(batch.createdAt).toLocaleString()}</p>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <span className={`px-2 py-0.5 rounded-full text-xs font-medium
+                                                    ${batch.status === 'COMPLETED' ? 'bg-green-100 text-green-700' :
+                                                        batch.status === 'FAILED' ? 'bg-red-100 text-red-700' :
+                                                            batch.status === 'CANCELLED' ? 'bg-gray-100 text-gray-700' :
+                                                                'bg-blue-100 text-blue-700 animate-pulse'}`}>
+                                                    {batch.status}
+                                                </span>
+                                                {(batch.status === 'PROCESSING' || batch.status === 'PENDING') && (
+                                                    <button
+                                                        onClick={() => handleCancelConfig(batch.id)}
+                                                        className="text-red-600 hover:text-red-800 p-1"
+                                                        title="Stop Import"
+                                                    >
+                                                        <StopCircle className="w-5 h-5" />
+                                                    </button>
+                                                )}
+                                                <button
+                                                    onClick={() => handleDeleteBatch(batch.id)}
+                                                    className="text-gray-400 hover:text-red-600 p-1"
+                                                    title="Delete Batch & Data"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Progress Bar */}
+                                        <div className="w-full bg-gray-100 rounded-full h-2 mb-1">
+                                            <div
+                                                className={`h-2 rounded-full transition-all duration-500 ${batch.status === 'FAILED' ? 'bg-red-500' : 'bg-blue-500'}`}
+                                                style={{ width: `${batch.total > 0 ? (batch.processed / batch.total) * 100 : 0}%` }}
+                                            ></div>
+                                        </div>
+                                        <div className="flex justify-between text-xs text-gray-500">
+                                            <span>{batch.processed} / {batch.total} processed</span>
+                                            {batch.errors > 0 && <span className="text-red-600">{batch.errors} errors</span>}
+                                        </div>
+                                    </div>
+                                ))
+                            )}
                         </div>
                     </div>
-                )}
+                </div>
             </div>
         </div>
     );

@@ -1,0 +1,9 @@
+Error in analyze_interview: Failed to parse AI response
+Traceback (most recent call last):
+  File "C:\apps\ats-ai-platform\apps\backend-ai\main.py", line 788, in analyze_interview
+    data = clean_and_parse_json(response.text)
+  File "C:\apps\ats-ai-platform\apps\backend-ai\main.py", line 197, in clean_and_parse_json
+    raise ValueError("Failed to parse AI response")
+ValueError: Failed to parse AI response
+
+--------------------

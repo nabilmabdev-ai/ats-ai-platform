@@ -1,6 +1,9 @@
 import {
   Controller,
   Post,
+  Get,
+  Delete,
+  Param,
   UseInterceptors,
   UploadedFile,
   BadRequestException,
@@ -12,7 +15,27 @@ import { extname } from 'path';
 
 @Controller('csv-import')
 export class CsvImportController {
-  constructor(private readonly csvImportService: CsvImportService) {}
+  constructor(private readonly csvImportService: CsvImportService) { }
+
+  @Get()
+  async getBatches() {
+    return this.csvImportService.getBatches();
+  }
+
+  @Get(':id')
+  async getBatch(@Param('id') id: string) {
+    return this.csvImportService.getBatch(id);
+  }
+
+  @Delete(':id')
+  async deleteBatch(@Param('id') id: string) {
+    return this.csvImportService.deleteBatch(id);
+  }
+
+  @Post(':id/cancel')
+  async cancelBatch(@Param('id') id: string) {
+    return this.csvImportService.cancelBatch(id);
+  }
 
   @Post()
   @UseInterceptors(
@@ -42,7 +65,9 @@ export class CsvImportController {
     if (!file) {
       throw new BadRequestException('File is required');
     }
-    return this.csvImportService.importCsv(file.path);
+    // Return batch ID immediately
+    const batchId = await this.csvImportService.importCsv(file.path, file.originalname);
+    return { batchId, message: 'Import started in background' };
   }
 
   @Post('analyze')
