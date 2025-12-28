@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { UsersIcon, SettingsIcon, BriefcaseIcon } from '@/components/ui/Icons';
+import { UsersIcon, SettingsIcon, BriefcaseIcon, CopyIcon } from '@/components/ui/Icons';
 
 interface Job {
   id: string;
@@ -14,7 +14,7 @@ interface Job {
   createdAt?: string;
 }
 
-export default function JobCard({ job }: { job: Job }) {
+export default function JobCard({ job, onDuplicate }: { job: Job; onDuplicate?: (id: string) => void }) {
 
   // 1. Helper to strip Markdown and Title if repeated
   const getCleanDescription = (markdown: string, title: string) => {
@@ -97,6 +97,19 @@ export default function JobCard({ job }: { job: Job }) {
             <SettingsIcon className="w-3.5 h-3.5 text-[var(--color-text-soft)] group-hover/btn:text-[var(--color-primary)] transition-colors" />
             <span className="font-medium text-[var(--color-text-dark)] group-hover/btn:text-[var(--color-primary)] transition-colors">Manage</span>
           </Link>
+
+          {onDuplicate && (
+            <>
+              <div className="w-px h-4 bg-[var(--color-border)]" />
+              <button
+                onClick={() => onDuplicate(job.id)}
+                className="btn-ghost text-xs h-9 w-9 flex justify-center items-center hover:bg-[var(--color-neutral-50)] rounded-[var(--radius-md)] transition-colors"
+                title="Duplicate Job"
+              >
+                <CopyIcon className="w-3.5 h-3.5 text-[var(--color-text-soft)] hover:text-[var(--color-primary)]" />
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

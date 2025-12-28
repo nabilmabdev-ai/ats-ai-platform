@@ -25,11 +25,11 @@ async function main() {
   }
 
   console.log('✅ ALL SEEDING COMPLETED SUCCESSFULLY.');
-  console.log('   Login Credentials:');
-  console.log('   - Admin:      admin@ats.ai');
-  console.log('   - Recruiter:  recruiter@ats.ai');
-  console.log('   - Manager:    manager@ats.ai');
-  console.log('   - Interviewer: tech@ats.ai');
+  console.log('   Login Credentials (Password: password123):');
+  console.log('   - Admin:      admin@iosolutions.com');
+  console.log('   - Recruiter:  recruiter@iosolutions.com');
+  console.log('   - Manager:    director@iosolutions.com');
+  console.log('   - Interviewer: teamlead@iosolutions.com');
 }
 
 main()

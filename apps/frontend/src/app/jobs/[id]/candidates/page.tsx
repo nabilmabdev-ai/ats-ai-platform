@@ -26,11 +26,12 @@ interface Job {
 interface Application {
   id: string;
   job: { id: string; title: string };
-  candidate: { email: string; firstName: string; lastName: string };
+  candidate: { email: string; firstName: string; lastName: string; resumeS3Key?: string | null };
   aiSummary: string;
   status: string;
   aiScore: number;
   updatedAt?: string;
+  coverLetterS3Key?: string | null;
 }
 
 interface Candidate {
@@ -72,10 +73,15 @@ export default function CandidatesPage({ params }: { params: Promise<{ id: strin
   const [invitedIds, setInvitedIds] = useState<Set<string>>(new Set());
   const [processingInviteId, setProcessingInviteId] = useState<string | null>(null);
 
-  const getResumeUrl = (path: string) => {
+  const getResumeUrl = (path: string | null | undefined) => {
     if (!path) return '#';
-    if (path.startsWith('http')) return path;
-    return `${process.env.NEXT_PUBLIC_API_URL}/uploads/${path}`;
+    let cleanPath = path.trim();
+    // Remove surrounding quotes if present
+    cleanPath = cleanPath.replace(/^["']|["']$/g, '');
+
+    if (cleanPath.match(/^https?:\/\//i)) return cleanPath;
+
+    return `${process.env.NEXT_PUBLIC_API_URL}/${cleanPath.replace(/\\/g, '/')}`;
   };
 
   const fetchInitialData = useCallback(async () => {
@@ -337,9 +343,26 @@ export default function CandidatesPage({ params }: { params: Promise<{ id: strin
                         <Link href={`/screening/${app.id}`} className="btn-secondary text-xs py-1.5">
                           View Application
                         </Link>
-                        {/* <a href={getResumeUrl(app.resume)} target="_blank" rel="noreferrer" className="btn-ghost text-xs py-1.5">
-                          View Resume
-                        </a> */}
+                        {app.candidate.resumeS3Key && (
+                          <a
+                            href={getResumeUrl(app.candidate.resumeS3Key)}
+                            target="_blank"
+                            download
+                            className="btn-ghost text-xs py-1.5 flex items-center gap-1"
+                          >
+                            <span className="text-lg">📄</span> Resume
+                          </a>
+                        )}
+                        {app.coverLetterS3Key && (
+                          <a
+                            href={getResumeUrl(app.coverLetterS3Key)}
+                            target="_blank"
+                            download
+                            className="btn-ghost text-xs py-1.5 flex items-center gap-1"
+                          >
+                            <span className="text-lg">📝</span> Cover Letter
+                          </a>
+                        )}
                       </div>
                     </div>
                   </div>

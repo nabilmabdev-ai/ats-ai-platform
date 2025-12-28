@@ -15,7 +15,9 @@ import { JwtStrategy } from './strategies/jwt.strategy';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET') || 'dev_secret_key_do_not_use_in_prod',
+        secret:
+          configService.get<string>('JWT_SECRET') ||
+          'dev_secret_key_do_not_use_in_prod',
         signOptions: { expiresIn: '1d' },
       }),
     }),
@@ -24,4 +26,4 @@ import { JwtStrategy } from './strategies/jwt.strategy';
   providers: [AuthService, JwtStrategy],
   exports: [AuthService],
 })
-export class AuthModule { }
+export class AuthModule {}

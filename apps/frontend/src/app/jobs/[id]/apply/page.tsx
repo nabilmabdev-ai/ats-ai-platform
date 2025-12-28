@@ -2,7 +2,7 @@
 
 import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
-import { Upload, CheckCircle, AlertCircle, Building2, MapPin, Globe, Clock, ChevronRight, Briefcase } from 'lucide-react';
+import { Upload, CheckCircle, AlertCircle, Building2, MapPin, Globe, Clock, ChevronRight, Briefcase, FileText } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 import { useToast } from '@/components/ui/Toast';
@@ -50,6 +50,7 @@ export default function ApplyPage({ params }: { params: Promise<{ id: string }> 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [file, setFile] = useState<File | null>(null);
+  const [coverLetterFile, setCoverLetterFile] = useState<File | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dragActive, setDragActive] = useState(false);
@@ -111,6 +112,20 @@ export default function ApplyPage({ params }: { params: Promise<{ id: string }> 
     }
   };
 
+  const handleCoverLetterDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // setDragActive(false); // We can manage separate drag states if we want, but simple is fine
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const droppedFile = e.dataTransfer.files[0];
+      if (droppedFile.type === "application/pdf" || droppedFile.name.endsWith(".doc") || droppedFile.name.endsWith(".docx")) {
+        setCoverLetterFile(droppedFile);
+      } else {
+        addToast("Please upload a PDF or Word document", "warning");
+      }
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!file) return addToast('Please upload a CV', 'warning');
@@ -130,6 +145,9 @@ export default function ApplyPage({ params }: { params: Promise<{ id: string }> 
     formData.append('name', name);
     formData.append('email', email);
     formData.append('resume', file);
+    if (coverLetterFile) {
+      formData.append('coverLetter', coverLetterFile);
+    }
     formData.append('knockoutAnswers', JSON.stringify(answers));
 
     try {
@@ -283,8 +301,8 @@ export default function ApplyPage({ params }: { params: Promise<{ id: string }> 
                     <label className="text-sm font-semibold text-slate-700">Resume / CV</label>
                     <div
                       className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-all cursor-pointer group ${dragActive
-                          ? "border-indigo-500 bg-indigo-50/50"
-                          : "border-slate-200 hover:border-indigo-400 hover:bg-slate-50"
+                        ? "border-indigo-500 bg-indigo-50/50"
+                        : "border-slate-200 hover:border-indigo-400 hover:bg-slate-50"
                         }`}
                       onDragEnter={handleDrag}
                       onDragLeave={handleDrag}
@@ -305,6 +323,40 @@ export default function ApplyPage({ params }: { params: Promise<{ id: string }> 
                           {file ? (
                             <>
                               <p className="font-semibold text-slate-900">{file.name}</p>
+                              <p className="text-xs text-green-600 font-medium">Ready to upload</p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="font-semibold text-slate-900">Click to upload or drag and drop</p>
+                              <p className="text-xs text-slate-500">PDF, DOCX up to 10MB</p>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">Cover Letter / Other (Optional)</label>
+                    <div
+                      className="relative border-2 border-dashed border-slate-200 rounded-xl p-8 text-center transition-all cursor-pointer hover:border-indigo-400 hover:bg-slate-50 group"
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={handleCoverLetterDrop}
+                    >
+                      <input
+                        type="file"
+                        accept=".pdf,.doc,.docx"
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        onChange={(e) => setCoverLetterFile(e.target.files?.[0] || null)}
+                      />
+                      <div className="flex flex-col items-center gap-3">
+                        <div className={`p-3 rounded-full transition-colors ${coverLetterFile ? 'bg-green-100 text-green-600' : 'bg-indigo-50 text-indigo-600 group-hover:bg-indigo-100'}`}>
+                          {coverLetterFile ? <CheckCircle className="w-6 h-6" /> : <FileText className="w-6 h-6" />}
+                        </div>
+                        <div className="space-y-1">
+                          {coverLetterFile ? (
+                            <>
+                              <p className="font-semibold text-slate-900">{coverLetterFile.name}</p>
                               <p className="text-xs text-green-600 font-medium">Ready to upload</p>
                             </>
                           ) : (

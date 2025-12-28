@@ -128,6 +128,49 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
         setColumns(grouped);
     }, [applications, showRejected]);
 
+    // --- POLLING FOR PARSING STATUS ---
+    // Instead of refreshing the whole page (which resets pagination), we only fetch updates for parsing candidates.
+    useEffect(() => {
+        // Identify candidates that are parsing (no AI summary yet)
+        const parsingApps = applications.filter(app => !app.aiSummary || app.aiSummary === '');
+
+        if (parsingApps.length === 0) return;
+
+        const intervalId = setInterval(async () => {
+            const idsToCheck = parsingApps.map(app => app.id);
+            if (idsToCheck.length === 0) return;
+
+            try {
+                // Fetch updates for these specific IDs
+                const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/applications/batch?ids=${idsToCheck.join(',')}`);
+                if (!res.ok) return;
+
+                const updatedApps: Application[] = await res.json();
+
+                // Merge updates into local state if any finished parsing
+                setApplications(prevApps => {
+                    let hasChanges = false;
+                    const nextApps = prevApps.map(prevApp => {
+                        const update = updatedApps.find(u => u.id === prevApp.id);
+                        // If we found an update and it has a summary now, use it
+                        if (update && update.aiSummary && update.aiSummary !== prevApp.aiSummary) {
+                            hasChanges = true;
+                            return { ...prevApp, ...update };
+                        }
+                        return prevApp;
+                    });
+
+                    return hasChanges ? nextApps : prevApps;
+                });
+
+            } catch (error) {
+                console.error("Silent polling failed:", error);
+            }
+        }, 5000);
+
+        return () => clearInterval(intervalId);
+    }, [applications]);
+
     const loadMore = async () => {
         if (isLoadingMore || !hasMore) return;
         setIsLoadingMore(true);
@@ -181,9 +224,31 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
     const handleUpdateStatus = async (status: string) => {
         if (!selectedJobId || selectedJobId === 'ALL') return;
 
-        const confirmMessage = status === 'CLOSED'
-            ? 'Are you sure you want to close this job? It will be marked as filled.'
-            : 'Are you sure you want to archive this job? It will be hidden from the active pipeline.';
+        // --- SMART CLOSE LOGIC ---
+        if (status === 'CLOSED') {
+            const confirmMessage = '⚠️ WARNING: Closing this job will AUTOMATICALLY REJECT all active candidates (excluding Hired/Offer).\n\nAre you sure you want to proceed?';
+            if (!window.confirm(confirmMessage)) return;
+
+            try {
+                const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/jobs/${selectedJobId}/close`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                });
+                if (!res.ok) throw new Error('Failed to close job');
+
+                router.refresh();
+                setIsManageMenuOpen(false);
+            } catch (error) {
+                console.error('Failed to close job:', error);
+                alert('Failed to close job. Please try again.');
+            }
+            return;
+        }
+
+        // --- Standard Status Update (e.g. ARCHIVED) ---
+        const confirmMessage = status === 'ARCHIVED'
+            ? 'Are you sure you want to archive this job? It will be hidden from the active pipeline.'
+            : `Set status to ${status}?`;
 
         if (!window.confirm(confirmMessage)) return;
 

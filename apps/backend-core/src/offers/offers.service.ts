@@ -182,4 +182,34 @@ export class OffersService {
       where: { applicationId },
     });
   }
+
+  async regeneratePdf(id: string) {
+    const offer = await this.prisma.offer.findUnique({
+      where: { id },
+    });
+    if (!offer) throw new NotFoundException('Offer not found');
+
+    // We can only regenerate if it has content.
+    // Assuming offerLetter (JSON) is still valid.
+    let docDefinition;
+    try {
+      docDefinition = JSON.parse(offer.offerLetter);
+    } catch (e) {
+      throw new ConflictException('Invalid JSON template content in offer');
+    }
+
+    // Reset status to DRAFT (or keep as is, but DRAFT implies "working on it")
+    // If it was FAILED, DRAFT is good to show "generating..."
+    await this.prisma.offer.update({
+      where: { id },
+      data: { status: OfferStatus.DRAFT, generatedOfferUrl: null },
+    });
+
+    await this.pdfQueue.add('generate-pdf', {
+      offerId: offer.id,
+      docDefinition,
+    });
+
+    return { success: true, message: 'PDF regeneration triggered' };
+  }
 }

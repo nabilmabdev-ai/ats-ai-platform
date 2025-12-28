@@ -4,7 +4,9 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { firstValueFrom } from 'rxjs';
@@ -19,6 +21,7 @@ export class InterviewsService {
   constructor(
     private prisma: PrismaService,
     private httpService: HttpService,
+    private configService: ConfigService,
     private emailService: EmailService,
     private calendarService: CalendarService,
   ) {}
@@ -48,6 +51,13 @@ export class InterviewsService {
         interviewer: { select: { fullName: true } },
       },
       orderBy: { scheduledAt: 'asc' },
+    });
+  }
+
+  async saveDraftNotes(interviewId: string, notes: string) {
+    return this.prisma.interview.update({
+      where: { id: interviewId },
+      data: { humanNotes: notes },
     });
   }
 
@@ -97,8 +107,10 @@ export class InterviewsService {
 
     let scorecard = {};
     try {
+      const aiServiceUrl =
+        this.configService.get('AI_SERVICE_URL') ?? 'http://localhost:8000';
       const { data } = await firstValueFrom(
-        this.httpService.post('http://localhost:8000/analyze-interview', {
+        this.httpService.post(`${aiServiceUrl}/analyze-interview`, {
           job_title: app.job.title,
           job_description: app.job.descriptionText || '',
           requirements: requirements,
@@ -174,6 +186,104 @@ export class InterviewsService {
     });
   }
 
+  async triggerInvite(applicationId: string) {
+    try {
+      const invite = await this.createInvite(applicationId);
+      const bookingLink = `http://localhost:3000/book/${invite.bookingToken}`;
+
+      // Re-fetch to get candidate details if createInvite didn't return them (it returns the created object)
+      // Actually createInvite returns the interview object. We need candidate details.
+      const application = await this.prisma.application.findUnique({
+        where: { id: applicationId },
+        include: { candidate: true, job: true },
+      });
+
+      if (!application) return;
+
+      await this.emailService.sendInterviewInvite(
+        application.candidate.email,
+        application.candidate.firstName || 'Candidate',
+        application.job.title,
+        bookingLink,
+      );
+      return invite;
+    } catch (error) {
+      console.error(
+        `Failed to trigger interview invite for app ${applicationId}:`,
+        error.message,
+      );
+      throw error;
+    }
+  }
+
+  async getSmartScheduleCandidates() {
+    return this.prisma.application.findMany({
+      where: {
+        status: 'INTERVIEW',
+        interviews: {
+          none: {}, // No interviews associated
+        },
+      },
+      select: {
+        id: true,
+        candidate: {
+          select: {
+            firstName: true,
+            lastName: true,
+            email: true,
+          },
+        },
+        job: {
+          select: {
+            title: true,
+          },
+        },
+      },
+    });
+  }
+
+  async runSmartSchedule(applicationIds?: string[]) {
+    // 1. Find all applications in INTERVIEW status that do NOT have an interview record
+    // If applicationIds is provided, filter by those IDs as well
+    const whereClause: any = {
+      status: 'INTERVIEW',
+      interviews: {
+        none: {}, // No interviews associated
+      },
+    };
+
+    if (applicationIds && applicationIds.length > 0) {
+      whereClause.id = { in: applicationIds };
+    }
+
+    const appsNeedingInvite = await this.prisma.application.findMany({
+      where: whereClause,
+      select: { id: true },
+    });
+
+    console.log(
+      `Smart Schedule: Found ${appsNeedingInvite.length} candidates needing invites.`,
+    );
+
+    let sentCount = 0;
+    const errors: any[] = [];
+
+    for (const app of appsNeedingInvite) {
+      try {
+        await this.triggerInvite(app.id);
+        sentCount++;
+      } catch (e: any) {
+        errors.push({ applicationId: app.id, error: e.message });
+      }
+    }
+
+    return {
+      totalFound: appsNeedingInvite.length,
+      sentCount,
+      errors,
+    };
+  }
+
   async getAvailableSlots(token: string, candidateTimeZone?: string) {
     const interview = await this.prisma.interview.findUnique({
       where: { bookingToken: token },
@@ -237,7 +347,7 @@ export class InterviewsService {
       return updated;
     } catch (error: any) {
       if (error.code === 'P2002') {
-        throw new BadRequestException(
+        throw new ConflictException(
           'This time slot has already been booked by another candidate. Please select a different time.',
         );
       }
@@ -249,21 +359,35 @@ export class InterviewsService {
 
   async generateQuestions(dto: any) {
     try {
+      const aiServiceUrl =
+        this.configService.get('AI_SERVICE_URL') ?? 'http://localhost:8000';
       const { data } = await firstValueFrom(
-        this.httpService.post(
-          'http://localhost:8000/generate-interview-questions',
-          {
-            job_title: dto.jobTitle,
-            job_description: dto.jobDescription || '',
-            skills: dto.skills || [],
-            candidate_name: dto.candidateName || 'Candidate',
-          },
-        ),
+        this.httpService.post(`${aiServiceUrl}/generate-interview-questions`, {
+          job_title: dto.jobTitle,
+          job_description: dto.jobDescription || '',
+          skills: dto.skills || [],
+          candidate_name: dto.candidateName || 'Candidate',
+        }),
       );
       return data;
     } catch (e: any) {
       console.error('AI Question Generation Failed', e.message);
       throw new BadRequestException('Failed to generate questions');
     }
+  }
+
+  async saveQuestions(interviewId: string, questions: any[]) {
+    const interview = await this.prisma.interview.findUnique({
+      where: { id: interviewId },
+    });
+
+    if (!interview) throw new NotFoundException('Interview not found');
+
+    return this.prisma.interview.update({
+      where: { id: interviewId },
+      data: {
+        questions: questions,
+      },
+    });
   }
 }

@@ -17,4 +17,13 @@ export class CreateUserDto {
 
   @IsEnum(Role)
   role: Role;
+
+  @IsNotEmpty()
+  availability?: {
+    timezone: string;
+    workHours: {
+      start: number;
+      end: number;
+    };
+  };
 }

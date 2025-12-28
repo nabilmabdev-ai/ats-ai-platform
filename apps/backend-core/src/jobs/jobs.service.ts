@@ -1,6 +1,7 @@
 // --- Content from: apps/backend-core/src/jobs/jobs.service.ts ---
 
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { CreateJobDto } from './dto/create-job.dto';
@@ -15,6 +16,7 @@ export class JobsService {
   constructor(
     private prisma: PrismaService,
     private httpService: HttpService,
+    private configService: ConfigService,
     private emailService: EmailService,
   ) {}
 
@@ -23,6 +25,14 @@ export class JobsService {
     return this.prisma.jobTemplate.findMany({
       orderBy: { name: 'asc' },
     });
+  }
+
+  // --- NEW: Expose Global Config ---
+  async getJobConfig() {
+    const company = await this.prisma.company.findFirst();
+    return {
+      companyTone: company?.aiTone || 'Professional', // Fallback
+    };
   }
 
   // --- AI Generation with Handlebars ---
@@ -91,7 +101,7 @@ export class JobsService {
       };
 
       const aiServiceUrl =
-        process.env.AI_SERVICE_URL || 'http://localhost:8000';
+        this.configService.get('AI_SERVICE_URL') ?? 'http://localhost:8000';
 
       const { data: aiData } = await firstValueFrom(
         this.httpService.post(
@@ -161,7 +171,7 @@ export class JobsService {
 
     try {
       const aiServiceUrl =
-        process.env.AI_SERVICE_URL || 'http://localhost:8000';
+        this.configService.get('AI_SERVICE_URL') ?? 'http://localhost:8000';
       const { data } = await firstValueFrom(
         this.httpService.post(`${aiServiceUrl}/match-job`, {
           job_description: queryText,
@@ -295,6 +305,60 @@ export class JobsService {
     return newJob;
   }
 
+  // --- Bulk Create Jobs ---
+  async bulkCreate(titles: string[]) {
+    const defaultWorkflow = await this.prisma.jobWorkflowTemplate.findFirst();
+    const defaultScreening = await this.prisma.screeningTemplate.findFirst();
+
+    const jobs = await Promise.all(
+      titles.map((title) =>
+        this.prisma.job.create({
+          data: {
+            title,
+            descriptionText: 'Imported from CSV. Please update description.',
+            status: JobStatus.DRAFT,
+            priority: 'MEDIUM',
+            remoteType: 'REMOTE',
+            location: 'Morocco',
+            workflowTemplateId: defaultWorkflow?.id,
+            screeningTemplateId: defaultScreening?.id,
+          },
+        }),
+      ),
+    );
+    return jobs;
+  }
+
+  // --- Duplicate Job ---
+  async duplicateJob(id: string, userId: string) {
+    const existingJob = await this.prisma.job.findUnique({ where: { id } });
+    if (!existingJob) throw new NotFoundException('Job not found');
+
+    // Destructure to exclude fields we don't want to copy
+    const {
+      id: _id,
+      createdAt,
+      updatedAt,
+      approvedAt,
+      approvedById,
+      status,
+      distribution,
+      ...jobData
+    } = existingJob;
+
+    return this.prisma.job.create({
+      data: {
+        ...jobData,
+        title: `${jobData.title} (Copy)`, // Clear separation
+        status: 'DRAFT', // Start fresh
+        // Link to the user duplicating it as the creator/manager?
+        // For now, we assume the user duplicating it becomes the hiring manager or we keep original?
+        // The requirement says "Link to the user duplicating it as the creator/manager"
+        hiringManagerId: userId,
+      } as any,
+    });
+  }
+
   // --- Approval & Distribution Workflow ---
   async approveJob(id: string, userId: string) {
     const job = await this.prisma.job.findUnique({ where: { id } });
@@ -314,6 +378,34 @@ export class JobsService {
         approvedAt: new Date(),
         distribution: simulatedDistribution,
       },
+    });
+  }
+
+  // --- Smart Close ---
+  async closeJob(id: string) {
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Update Job Status
+      const job = await tx.job.update({
+        where: { id },
+        data: { status: JobStatus.CLOSED },
+      });
+
+      // 2. Bulk move active candidates to 'REJECTED'
+      // Filter for candidates who are NOT Hired, Rejected, or Offer
+      await tx.application.updateMany({
+        where: {
+          jobId: id,
+          status: {
+            notIn: [AppStatus.HIRED, AppStatus.REJECTED, AppStatus.OFFER],
+          },
+        },
+        data: {
+          status: AppStatus.REJECTED,
+          // We could add a note here if the schema supports it, but for now status change is enough
+        },
+      });
+
+      return job;
     });
   }
 
@@ -478,21 +570,14 @@ export class JobsService {
     const topCandidates = silverMedalists.slice(0, 5);
 
     for (const candidate of topCandidates) {
-      const match = matches.find((m: any) => m.candidate_id === candidate.id);
-
-      await this.prisma.application.create({
-        data: {
-          jobId: jobId,
-          candidateId: candidate.id,
-          status: AppStatus.SOURCED,
-          tags: ['Silver Medalist', 'AI Sourced'],
-          aiScore: match?.score || 0,
-          aiSummary:
-            'Auto-sourced as a Silver Medalist from previous rejection.',
-        },
-      });
+      await this.emailService.sendJobInvitation(
+        candidate.email,
+        candidate.firstName || 'Candidate',
+        job.title,
+        job.id,
+      );
       console.log(
-        `[SilverMedalist] Sourced candidate ${candidate.id} for job ${jobId}`,
+        `[SilverMedalist] Sent invitation to candidate ${candidate.id} for job ${jobId}`,
       );
     }
   }

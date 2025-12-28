@@ -15,17 +15,22 @@ const mockPrismaService = {
     findUnique: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
+    findFirst: jest.fn(),
   },
   interview: {
     updateMany: jest.fn(),
   },
   comment: {
     updateMany: jest.fn(),
+    create: jest.fn(),
   },
   offer: {
     findUnique: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
+  },
+  user: {
+    findFirst: jest.fn(),
   },
   $transaction: jest.fn((cb) => cb(mockPrismaService)),
 };
@@ -125,14 +130,14 @@ describe('CandidatesService', () => {
         .mockResolvedValueOnce({ id: primaryId })
         .mockResolvedValueOnce({
           id: secondaryId,
-          applications: [{ id: 'app2', jobId: 'job1', status: 'INTERVIEW' }]
+          applications: [{ id: 'app2', jobId: 'job1', status: 'INTERVIEW' }],
         });
 
       // Conflict with lower status
       mockPrismaService.application.findUnique.mockResolvedValueOnce({
         id: 'app1',
         status: 'APPLIED',
-        offer: null
+        offer: null,
       });
 
       await service.mergeCandidates(primaryId, secondaryId);
@@ -140,7 +145,7 @@ describe('CandidatesService', () => {
       // Should update primary status to INTERVIEW
       expect(mockPrismaService.application.update).toHaveBeenCalledWith({
         where: { id: 'app1' },
-        data: { status: 'INTERVIEW' }
+        data: expect.objectContaining({ status: 'INTERVIEW' }),
       });
     });
 
@@ -152,25 +157,127 @@ describe('CandidatesService', () => {
         .mockResolvedValueOnce({ id: primaryId })
         .mockResolvedValueOnce({
           id: secondaryId,
-          applications: [{ id: 'app2', jobId: 'job1', status: 'OFFER' }]
+          applications: [{ id: 'app2', jobId: 'job1', status: 'OFFER' }],
         });
 
       // Conflict with no offer
       mockPrismaService.application.findUnique.mockResolvedValueOnce({
         id: 'app1',
         status: 'INTERVIEW',
-        offer: null
+        offer: null,
       });
 
       // Secondary has offer
-      mockPrismaService.offer.findUnique.mockResolvedValueOnce({ id: 'offer2' });
+      mockPrismaService.offer.findUnique.mockResolvedValueOnce({
+        id: 'offer2',
+      });
 
       await service.mergeCandidates(primaryId, secondaryId);
 
       // Should move offer2 to app1
       expect(mockPrismaService.offer.update).toHaveBeenCalledWith({
         where: { id: 'offer2' },
-        data: { applicationId: 'app1' }
+        data: { applicationId: 'app1' },
+      });
+    });
+
+    it('should create a system note on the latest application', async () => {
+      const primaryId = 'p1';
+      const secondaryId = 's1';
+
+      mockPrismaService.candidate.findUnique
+        .mockResolvedValueOnce({
+          id: primaryId,
+          firstName: 'Prim',
+          lastName: 'Ary',
+          email: 'p@test.com',
+        })
+        .mockResolvedValueOnce({
+          id: secondaryId,
+          firstName: 'Sec',
+          lastName: 'Ond',
+          email: 's@test.com',
+          applications: [],
+        });
+
+      mockPrismaService.application.findUnique.mockResolvedValue(null); // No conflicts
+
+      // Mock finding latest app
+      mockPrismaService.application.findFirst.mockResolvedValue({
+        id: 'latest-app-id',
+      });
+
+      // Mock finding admin user
+      mockPrismaService.user.findFirst.mockResolvedValue({ id: 'admin-id' });
+
+      await service.mergeCandidates(primaryId, secondaryId);
+
+      expect(mockPrismaService.comment.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          applicationId: 'latest-app-id',
+          authorId: 'admin-id',
+          content: expect.stringContaining('System Note'),
+        }),
+      });
+    });
+
+    it('should deep merge application data (parsing, metadata) when conflict occurs', async () => {
+      const primaryId = 'p1';
+      const secondaryId = 's1';
+
+      mockPrismaService.candidate.findUnique
+        .mockResolvedValueOnce({ id: primaryId })
+        .mockResolvedValueOnce({
+          id: secondaryId,
+          applications: [
+            {
+              id: 'app2',
+              jobId: 'job1',
+              status: 'APPLIED',
+              aiParsingData: { skills: ['Node.js'] },
+              aiSummary: 'Secondary Summary',
+              coverLetterS3Key: 'secondary_cl.pdf',
+              tags: ['tag2'],
+              knockoutAnswers: { q2: 'a2' },
+              metadata: { source: 'linkedin' },
+            },
+          ],
+        });
+
+      // Conflict exists
+      mockPrismaService.application.findUnique.mockResolvedValueOnce({
+        id: 'app1',
+        status: 'APPLIED',
+        aiParsingData: { skills: ['React'] },
+        aiSummary: 'Primary Summary',
+        coverLetterS3Key: null,
+        tags: ['tag1'],
+        knockoutAnswers: { q1: 'a1' },
+        metadata: { referrer: 'friend' },
+      });
+
+      await service.mergeCandidates(primaryId, secondaryId);
+
+      // Should update primary app with merged data
+      expect(mockPrismaService.application.update).toHaveBeenCalledWith({
+        where: { id: 'app1' },
+        data: expect.objectContaining({
+          aiParsingData: { skills: ['React', 'Node.js'] }, // Array merge logic might vary, but for object it should be merged
+          // Actually for JSON, if we implement deep merge, it depends.
+          // Let's assume my implementation will do a shallow merge of top-level keys or specific array logic.
+          // For this test, let's assume we implement Object.assign or similar for JSON fields.
+          // But wait, in the plan I said "Primary takes precedence".
+          // So if keys collide, Primary wins. If keys are new, they are added.
+          // For arrays like tags, we want union.
+
+          coverLetterS3Key: 'secondary_cl.pdf', // Primary was null
+
+          tags: expect.arrayContaining(['tag1', 'tag2']),
+
+          aiSummary: expect.stringContaining(
+            'Primary Summary\n\n--- Merged from Duplicate ---\n\nSecondary Summary',
+          ),
+        }),
       });
     });
   });

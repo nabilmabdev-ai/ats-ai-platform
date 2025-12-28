@@ -8,10 +8,12 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from dotenv import load_dotenv
 import google.generativeai as genai
-from pypdf import PdfReader
+import fitz # PyMuPDF
 import io
 from pymilvus import connections, FieldSchema, CollectionSchema, DataType, Collection, utility
 from fastapi.middleware.cors import CORSMiddleware
+import shutil
+import tempfile
 
 from contextlib import asynccontextmanager
 
@@ -105,23 +107,94 @@ def get_milvus_connection():
     return candidate_collection
 
 def clean_and_parse_json(text: str):
+    """
+    Robust JSON parser that handles LLM noise, markdown blocks, and embedded objects.
+    Attributes:
+        text (str): The raw text from the LLM.
+    Returns:
+        dict/list: Parsed JSON object.
+    """
+    # 1. Attempt Clean Parse first (Fast Path)
     try:
-        # Remove markdown code blocks
-        text = re.sub(r'^```json\s*', '', text, flags=re.MULTILINE)
-        text = re.sub(r'^```\s*', '', text, flags=re.MULTILINE)
-        text = re.sub(r'\s*```$', '', text, flags=re.MULTILINE)
         return json.loads(text)
     except json.JSONDecodeError:
-        # Fallback: try to find the first '{' and last '}'
+        pass
+
+    # 2. Cleanup Markdown Code Blocks
+    text = re.sub(r'^```(\w+)?\s*', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\s*```$', '', text, flags=re.MULTILINE)
+
+    # 3. Braced-Counting Extractor
+    # Finds the first outer-most JSON object or array and extracts it exactly.
+    # This handles "Here is your JSON: { ... } Thanks!" correctly.
+    try:
+        start_index = -1
+        stack = []
+        in_string = False
+        escape = False
+        
+        # Locate first valid opener
+        for i, char in enumerate(text):
+            if char == '{' or char == '[':
+                start_index = i
+                stack.append(char)
+                break
+        
+        if start_index == -1:
+            raise ValueError("No JSON start found")
+
+        for i in range(start_index + 1, len(text)):
+            char = text[i]
+            
+            # Handle String State (ignore braces inside strings)
+            if char == '"' and not escape:
+                in_string = not in_string
+            
+            if char == '\\':
+                escape = not escape
+            else:
+                escape = False
+            
+            if in_string:
+                continue
+
+            # Handle Structural Braces
+            if char == '{' or char == '[':
+                stack.append(char)
+            elif char == '}' or char == ']':
+                if stack:
+                    last = stack[-1]
+                    if (char == '}' and last == '{') or (char == ']' and last == '['):
+                        stack.pop()
+                        # If stack is empty, we found the closing brace of the root object
+                        if not stack:
+                            candidate = text[start_index : i + 1]
+                            return json.loads(candidate)
+                    else:
+                        # Mismatched brace - might be malformed, abort smart parse
+                        break
+    except Exception:
+        pass # Fallback to loose regex
+
+    # 4. Fallback: Loose Regex for { ... }
+    # This is less accurate but catches simple cases if the brace counter failed
+    try:
         start = text.find('{')
         end = text.rfind('}')
         if start != -1 and end != -1:
-            try:
-                return json.loads(text[start:end+1])
-            except:
-                pass
-        logger.error(f"Failed to parse JSON: {text}")
-        raise HTTPException(status_code=500, detail="Failed to parse AI response")
+            return json.loads(text[start:end+1])
+    except:
+        pass
+    
+    # 5. Last Resort: Log and Fail
+    logger.error(f"Failed to parse JSON: {text[:500]}...")
+    try:
+        with open("json_parse_error.log", "a", encoding="utf-8") as f:
+            f.write(f"--- FAILED JSON PARSE ---\n{text}\n-------------------------\n")
+    except:
+        pass
+
+    raise ValueError("Failed to parse AI response")
 
 # --- DTOs for Requests ---
 class JobGenRequest(BaseModel):
@@ -184,6 +257,8 @@ class ScreeningResponse(BaseModel):
     red_flags: List[str]
     missing_critical_skills: List[str]
     screening_summary: str
+    pros: List[str]
+    cons: List[str]
 
 class CVParseResponse(BaseModel):
     skills: List[str]
@@ -230,7 +305,9 @@ def screen_candidate(request: ScreeningRequest):
         TASK:
         1. Calculate a Match Score (0-100) based strictly on the criteria.
         2. Identify "Red Flags" or "Missing Critical Skills".
-        3. Generate a "Screening Summary" justifying the score.
+        3. Identify 3-5 "Pros" (Key strengths relative to the job).
+        4. Identify 3-5 "Cons" (Weaknesses or gaps relative to the job).
+        5. Generate a "Screening Summary" justifying the score.
         """
         
         response = model.generate_content(
@@ -399,12 +476,63 @@ def generate_job_desc(request: JobGenRequest):
 
 @app.post("/parse-cv")
 async def parse_cv(file: UploadFile = File(...)):
+    tmp_path = None
     try:
-        content = await file.read()
-        pdf = PdfReader(io.BytesIO(content))
-        text = ""
-        for page in pdf.pages:
-            text += page.extract_text() + "\n"
+        # STREAMING UPLOAD: Save to temp file instead of invalidating memory
+        # This handles massive PDFs (50MB+) without crashing the worker.
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            shutil.copyfileobj(file.file, tmp)
+            tmp_path = tmp.name
+        
+        # Use PyMuPDF (fitz) with the file path
+        # This allows random access and better memory management by fitz C++ backend
+        with fitz.open(tmp_path) as doc:
+            text = ""
+            for page in doc:
+                text += page.get_text() + "\n"
+
+        # OCR Fallback Logic
+        if len(text.strip()) < 50:
+            logger.info("Text extraction failed or too short. Triggering OCR Fallback with Gemini Vision...")
+            
+            try:
+                # 2. Upload to Gemini
+                logger.info(f"Uploading {tmp_path} to Gemini...")
+                # Use the already saved temp file
+                uploaded_file = genai.upload_file(tmp_path, mime_type="application/pdf")
+                logger.info(f"File uploaded: {uploaded_file.name}")
+                
+                # 3. Prompt with File
+                model = genai.GenerativeModel('gemini-2.5-pro')
+                prompt = """
+                You are an expert HR AI. Look at this document image and extract the resume data into JSON.
+                
+                EXTRACT:
+                - skills (list of strings)
+                - summary (string)
+                - experience_years (int)
+                - education_level (string)
+                
+                Output strictly valid JSON.
+                """
+                
+                response = model.generate_content(
+                    [prompt, uploaded_file],
+                    generation_config=genai.GenerationConfig(
+                        response_mime_type="application/json",
+                        response_schema=CVParseResponse
+                    )
+                )
+                
+                parsed_data = clean_and_parse_json(response.text)
+                parsed_data["raw_text"] = "OCR_EXTRACTED" # Marker to know it was OCR'd
+                return parsed_data
+                
+            except Exception as e:
+                logger.error(f"OCR Fallback Error: {e}")
+                # Fall through to return the empty text result or raise?
+                # If OCR fails, we likely have nothing.
+                raise e
 
         # Limit text length to avoid token limits
         prompt_text = text[:500000]
@@ -430,7 +558,15 @@ async def parse_cv(file: UploadFile = File(...)):
         
         return parsed_data
     except Exception as e:
+        logger.error(f"Parse CV Error: {e}")
         return {"skills": [], "summary": "Parsing failed", "error": str(e), "raw_text": ""}
+    finally:
+        # Cleanup Temp File
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception as cleanup_error:
+                logger.warning(f"Failed to cleanup temp file {tmp_path}: {cleanup_error}")
 
 @app.post("/vectorize-candidate")
 def vectorize_candidate(request: VectorizeRequest):
@@ -620,21 +756,63 @@ def analyze_interview(request: InterviewAnalysisRequest):
         1. Assign a Rating (1-10).
         2. Extract 3 Pros and 3 Cons.
         3. Compare notes against the REQUIRED SKILLS specifically. Did they demonstrate them?
-        4. Write a professional summary.
+        4. Write a professional summary (MAX 3-4 sentences).
+        
+        IMPORTANT:
+        - Be concise.
+        - Do NOT repeat the same points.
+        - Output strictly valid JSON.
         """
         
         response = model.generate_content(
             prompt,
             generation_config=genai.GenerationConfig(
                 response_mime_type="application/json",
-                response_schema=InterviewAnalysisResponse
+                response_schema=InterviewAnalysisResponse,
+                max_output_tokens=2048, # Increased to prevent truncation
+                temperature=0.7
             )
         )
-        return clean_and_parse_json(response.text)
+
+        # Check for valid response parts
+        if not response.parts:
+            logger.warning(f"AI Response blocked or empty. Finish Reason: {response.candidates[0].finish_reason}")
+            # Return a fallback response instead of crashing
+            return {
+                "rating": 0,
+                "pros": [],
+                "cons": [],
+                "summary": "AI Analysis could not be completed. The model returned an empty response (likely due to safety filters or token limits)."
+            }
+
+        data = clean_and_parse_json(response.text)
+        
+        # Ensure defaults for required fields
+        if not isinstance(data, dict):
+            data = {}
+            
+        data.setdefault("rating", 0)
+        data.setdefault("pros", [])
+        data.setdefault("cons", [])
+        data.setdefault("summary", "Analysis completed but some fields were missing.")
+        
+        return data
         
     except Exception as e:
         logger.error(f"Interview Analysis Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        with open("python_error.log", "a") as f:
+            import traceback
+            f.write(f"Error in analyze_interview: {str(e)}\n")
+            f.write(traceback.format_exc())
+            f.write("\n" + "-"*20 + "\n")
+        
+        # Return a safe fallback on error too
+        return {
+            "rating": 0,
+            "pros": [],
+            "cons": [],
+            "summary": "AI Analysis failed due to an internal error."
+        }
 
 # --- NEW: Generate Interview Questions Endpoint ---
 class QuestionGenRequest(BaseModel):

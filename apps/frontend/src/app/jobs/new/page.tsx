@@ -12,6 +12,7 @@ interface JobTemplate {
   name: string;
   structure: string;
   defaultScreeningTemplateId?: string;
+  aiTone?: string;
 }
 
 interface KoQuestion {
@@ -30,6 +31,7 @@ export default function NewJobPage() {
   const [description, setDescription] = useState('');
   const [region, setRegion] = useState<string>('FR');
   const [tone, setTone] = useState<string>(''); // New Tone State
+  const [companyTone, setCompanyTone] = useState<string>('');
 
   // Configuration
   const [selectedTemplate, setSelectedTemplate] = useState<JobTemplate | null>(null);
@@ -47,18 +49,23 @@ export default function NewJobPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/templates/job`)
+    // 1. Fetch Templates
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/jobs/templates`)
       .then(res => res.json())
       .then(data => {
         setTemplates(data);
-        // Optional: Auto-select first template if available
-        if (data.length > 0) {
-          // setSelectedTemplate(data[0]);
-        }
       })
       .catch(() => {
         addToast("Failed to load templates.", "error");
       });
+
+    // 2. Fetch Job Config (Company Tone)
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/jobs/config`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.companyTone) setCompanyTone(data.companyTone);
+      })
+      .catch(err => console.error("Failed to load config", err));
   }, [addToast]);
 
   const handleTemplateSelect = (template: JobTemplate) => {
@@ -245,6 +252,7 @@ export default function NewJobPage() {
             removeKoQuestion={removeKoQuestion}
             updateKoQuestion={updateKoQuestion}
             tone={tone} setTone={setTone} // Pass tone props
+            companyTone={companyTone}
           />
         </aside>
 

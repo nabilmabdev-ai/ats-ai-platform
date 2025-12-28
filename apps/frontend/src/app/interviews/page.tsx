@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import SmartScheduleModal from '../../components/SmartScheduleModal';
 
 const PAGE_SIZE = 10;
 
@@ -30,7 +31,9 @@ export default function InterviewsPage() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
+
   const [loadingMore, setLoadingMore] = useState(false);
+  const [isSmartScheduleOpen, setIsSmartScheduleOpen] = useState(false);
 
   const fetchInterviews = useCallback((isLoadMore = false) => {
     const pageToFetch = isLoadMore ? page + 1 : 1;
@@ -101,11 +104,20 @@ export default function InterviewsPage() {
             <h1 className="text-h2 mb-2">Interview Schedule</h1>
             <p className="text-body max-w-2xl">Manage your upcoming interviews and track candidate progress.</p>
           </div>
-          <button className="btn-primary flex items-center gap-2 shadow-[var(--shadow-glow)]">
+          <button
+            onClick={() => setIsSmartScheduleOpen(true)}
+            className="btn-primary flex items-center gap-2 shadow-[var(--shadow-glow)]"
+          >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
             Smart Schedule
           </button>
         </div>
+
+        <SmartScheduleModal
+          isOpen={isSmartScheduleOpen}
+          onClose={() => setIsSmartScheduleOpen(false)}
+        />
+
         <div className="glass-card overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-[var(--color-border)]">

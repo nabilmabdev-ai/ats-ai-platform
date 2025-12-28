@@ -43,6 +43,11 @@ export class SearchService implements OnModuleInit {
     ]);
   }
 
+  async deleteCandidate(id: string) {
+    const index = this.meiliClient.index('candidates');
+    await index.deleteDocument(id);
+  }
+
   // 2. HYBRID SEARCH
   async search(query: string) {
     // Parallel Execution

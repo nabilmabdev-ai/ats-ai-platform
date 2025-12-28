@@ -25,6 +25,10 @@ export default function MergeCandidateModal({ primaryCandidate, onClose, onMerge
     const [secondaryCandidate, setSecondaryCandidate] = useState<Candidate | null>(null);
     const [merging, setMerging] = useState(false);
 
+    // Strategy State
+    const [keepResumeFrom, setKeepResumeFrom] = useState<'primary' | 'secondary'>('primary');
+    const [keepEmailFrom, setKeepEmailFrom] = useState<'primary' | 'secondary'>('primary');
+
     const handleSearch = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!query) return;
@@ -52,7 +56,12 @@ export default function MergeCandidateModal({ primaryCandidate, onClose, onMerge
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     primaryId: primaryCandidate.id,
-                    secondaryId: secondaryCandidate.id
+                    secondaryId: secondaryCandidate.id,
+                    strategy: {
+                        keepNameFrom: 'primary', // Defaulting to primary for name as per current UI logic
+                        keepResumeFrom,
+                        keepContactFrom: keepEmailFrom // Mapping email choice to contact strategy
+                    }
                 })
             });
 
@@ -132,46 +141,113 @@ export default function MergeCandidateModal({ primaryCandidate, onClose, onMerge
                         </div>
                     ) : (
                         /* Step 2: Confirm Merge */
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div className="space-y-8">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
 
-                            {/* Primary */}
-                            <div className="border border-green-200 bg-green-50/50 rounded-xl p-6 relative overflow-hidden">
-                                <div className="absolute top-0 left-0 w-full h-1 bg-green-500"></div>
-                                <span className="absolute top-4 right-4 text-xs font-bold text-green-700 bg-green-100 px-2 py-1 rounded">KEEPING</span>
+                                {/* Primary */}
+                                <div className="border border-green-200 bg-green-50/50 rounded-xl p-6 relative overflow-hidden">
+                                    <div className="absolute top-0 left-0 w-full h-1 bg-green-500"></div>
+                                    <span className="absolute top-4 right-4 text-xs font-bold text-green-700 bg-green-100 px-2 py-1 rounded">KEEPING</span>
 
-                                <h3 className="text-lg font-bold text-gray-900 mb-4">Primary Profile</h3>
-                                <div className="space-y-3 text-sm">
-                                    <p><span className="text-gray-500 block text-xs">Name</span> {primaryCandidate.firstName} {primaryCandidate.lastName}</p>
-                                    <p><span className="text-gray-500 block text-xs">Email</span> {primaryCandidate.email}</p>
-                                    <p><span className="text-gray-500 block text-xs">Phone</span> {primaryCandidate.phone || '-'}</p>
-                                    <p><span className="text-gray-500 block text-xs">Location</span> {primaryCandidate.location || '-'}</p>
-                                    <p><span className="text-gray-500 block text-xs">Resume</span> {primaryCandidate.resumeS3Key ? 'Attached' : 'Missing'}</p>
+                                    <h3 className="text-lg font-bold text-gray-900 mb-4">Primary Profile</h3>
+                                    <div className="space-y-3 text-sm">
+                                        <p><span className="text-gray-500 block text-xs">Name</span> {primaryCandidate.firstName} {primaryCandidate.lastName}</p>
+                                        <p><span className="text-gray-500 block text-xs">Email</span> {primaryCandidate.email}</p>
+                                        <p><span className="text-gray-500 block text-xs">Phone</span> {primaryCandidate.phone || '-'}</p>
+                                        <p><span className="text-gray-500 block text-xs">Location</span> {primaryCandidate.location || '-'}</p>
+                                        <p><span className="text-gray-500 block text-xs">Resume</span> {primaryCandidate.resumeS3Key ? 'Attached' : 'Missing'}</p>
+                                    </div>
                                 </div>
+
+                                {/* Secondary */}
+                                <div className="border border-red-200 bg-red-50/50 rounded-xl p-6 relative overflow-hidden opacity-75">
+                                    <div className="absolute top-0 left-0 w-full h-1 bg-red-500"></div>
+                                    <span className="absolute top-4 right-4 text-xs font-bold text-red-700 bg-red-100 px-2 py-1 rounded">DELETING</span>
+
+                                    <h3 className="text-lg font-bold text-gray-900 mb-4">Duplicate Profile</h3>
+                                    <div className="space-y-3 text-sm">
+                                        <p><span className="text-gray-500 block text-xs">Name</span> {secondaryCandidate.firstName} {secondaryCandidate.lastName}</p>
+                                        <p><span className="text-gray-500 block text-xs">Email</span> {secondaryCandidate.email}</p>
+                                        <p><span className="text-gray-500 block text-xs">Phone</span> {secondaryCandidate.phone || '-'}</p>
+                                        <p><span className="text-gray-500 block text-xs">Location</span> {secondaryCandidate.location || '-'}</p>
+                                        <p><span className="text-gray-500 block text-xs">Resume</span> {secondaryCandidate.resumeS3Key ? 'Attached' : 'Missing'}</p>
+                                    </div>
+
+                                    <div className="mt-6 pt-6 border-t border-red-200">
+                                        <p className="text-xs text-red-600 italic">
+                                            * Applications, interviews, and comments will be moved to the Primary Profile.
+                                            * Missing data (e.g. phone) will be copied to Primary.
+                                            * This profile will be permanently deleted.
+                                        </p>
+                                    </div>
+                                </div>
+
                             </div>
 
-                            {/* Secondary */}
-                            <div className="border border-red-200 bg-red-50/50 rounded-xl p-6 relative overflow-hidden opacity-75">
-                                <div className="absolute top-0 left-0 w-full h-1 bg-red-500"></div>
-                                <span className="absolute top-4 right-4 text-xs font-bold text-red-700 bg-red-100 px-2 py-1 rounded">DELETING</span>
+                            {/* Strategy Options */}
+                            <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
+                                <h4 className="font-bold text-gray-900 mb-4">Merge Strategy</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-                                <h3 className="text-lg font-bold text-gray-900 mb-4">Duplicate Profile</h3>
-                                <div className="space-y-3 text-sm">
-                                    <p><span className="text-gray-500 block text-xs">Name</span> {secondaryCandidate.firstName} {secondaryCandidate.lastName}</p>
-                                    <p><span className="text-gray-500 block text-xs">Email</span> {secondaryCandidate.email}</p>
-                                    <p><span className="text-gray-500 block text-xs">Phone</span> {secondaryCandidate.phone || '-'}</p>
-                                    <p><span className="text-gray-500 block text-xs">Location</span> {secondaryCandidate.location || '-'}</p>
-                                    <p><span className="text-gray-500 block text-xs">Resume</span> {secondaryCandidate.resumeS3Key ? 'Attached' : 'Missing'}</p>
-                                </div>
+                                    {/* Resume Strategy */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">Resume to Keep</label>
+                                        <div className="flex gap-4">
+                                            <label className="flex items-center gap-2 cursor-pointer">
+                                                <input
+                                                    type="radio"
+                                                    name="resume"
+                                                    checked={keepResumeFrom === 'primary'}
+                                                    onChange={() => setKeepResumeFrom('primary')}
+                                                    className="text-blue-600 focus:ring-blue-500"
+                                                />
+                                                <span className="text-sm text-gray-700">Primary</span>
+                                            </label>
+                                            <label className="flex items-center gap-2 cursor-pointer">
+                                                <input
+                                                    type="radio"
+                                                    name="resume"
+                                                    checked={keepResumeFrom === 'secondary'}
+                                                    onChange={() => setKeepResumeFrom('secondary')}
+                                                    className="text-blue-600 focus:ring-blue-500"
+                                                    disabled={!secondaryCandidate.resumeS3Key}
+                                                />
+                                                <span className={`text-sm ${!secondaryCandidate.resumeS3Key ? 'text-gray-400' : 'text-gray-700'}`}>
+                                                    Secondary {secondaryCandidate.resumeS3Key ? '' : '(None)'}
+                                                </span>
+                                            </label>
+                                        </div>
+                                    </div>
 
-                                <div className="mt-6 pt-6 border-t border-red-200">
-                                    <p className="text-xs text-red-600 italic">
-                                        * Applications, interviews, and comments will be moved to the Primary Profile.
-                                        * Missing data (e.g. phone) will be copied to Primary.
-                                        * This profile will be permanently deleted.
-                                    </p>
+                                    {/* Email Strategy */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">Email & Contact Info</label>
+                                        <div className="flex gap-4">
+                                            <label className="flex items-center gap-2 cursor-pointer">
+                                                <input
+                                                    type="radio"
+                                                    name="email"
+                                                    checked={keepEmailFrom === 'primary'}
+                                                    onChange={() => setKeepEmailFrom('primary')}
+                                                    className="text-blue-600 focus:ring-blue-500"
+                                                />
+                                                <span className="text-sm text-gray-700">Primary ({primaryCandidate.email})</span>
+                                            </label>
+                                            <label className="flex items-center gap-2 cursor-pointer">
+                                                <input
+                                                    type="radio"
+                                                    name="email"
+                                                    checked={keepEmailFrom === 'secondary'}
+                                                    onChange={() => setKeepEmailFrom('secondary')}
+                                                    className="text-blue-600 focus:ring-blue-500"
+                                                />
+                                                <span className="text-sm text-gray-700">Secondary ({secondaryCandidate.email})</span>
+                                            </label>
+                                        </div>
+                                    </div>
+
                                 </div>
                             </div>
-
                         </div>
                     )}
 

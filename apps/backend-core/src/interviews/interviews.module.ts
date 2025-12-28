@@ -8,10 +8,12 @@ import { InterviewsController } from './interviews.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { EmailModule } from '../email/email.module';
 
+import { GoogleCalendarService } from './google-calendar.service';
+
 @Module({
   imports: [PrismaModule, HttpModule, EmailModule],
   controllers: [InterviewsController],
-  providers: [InterviewsService, CalendarService],
+  providers: [InterviewsService, CalendarService, GoogleCalendarService],
   exports: [InterviewsService],
 })
 export class InterviewsModule {}

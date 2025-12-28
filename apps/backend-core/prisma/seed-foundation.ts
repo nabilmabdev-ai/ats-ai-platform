@@ -55,12 +55,20 @@ async function main() {
       fullName: 'Sarah TeamLead',
       role: Role.INTERVIEWER,
       timezone: 'Africa/Casablanca',
+    },
+    {
+      id: 'system-user',
+      email: 'system@iosolutions.com',
+      fullName: 'System User',
+      role: Role.ADMIN,
+      timezone: 'UTC',
     }
   ];
 
   for (const u of users) {
     await prisma.user.create({
       data: {
+        id: (u as any).id, // Optional ID for system user
         email: u.email,
         fullName: u.fullName,
         passwordHash,

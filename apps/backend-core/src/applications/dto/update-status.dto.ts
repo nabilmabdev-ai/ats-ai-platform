@@ -8,6 +8,7 @@ export enum AppStatus {
   OFFER = 'OFFER',
   HIRED = 'HIRED',
   REJECTED = 'REJECTED',
+  SOURCED = 'SOURCED',
 }
 
 export class UpdateApplicationStatusDto {

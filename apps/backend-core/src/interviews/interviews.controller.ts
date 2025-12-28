@@ -7,6 +7,7 @@ import {
   Query,
   ParseIntPipe,
   ParseDatePipe,
+  Patch,
 } from '@nestjs/common';
 import { InterviewsService } from './interviews.service';
 import { CreateInterviewDto } from './dto/create-interview.dto';
@@ -25,6 +26,11 @@ export class InterviewsController {
     @Query('startDate', new ParseDatePipe({ optional: true })) startDate?: Date,
   ) {
     return this.interviewsService.findAll(page, limit, startDate);
+  }
+
+  @Patch(':id/notes')
+  saveDraftNotes(@Param('id') id: string, @Body() body: { notes: string }) {
+    return this.interviewsService.saveDraftNotes(id, body.notes);
   }
 
   @Post('scorecard')
@@ -65,5 +71,23 @@ export class InterviewsController {
   @Post('generate-questions')
   generateQuestions(@Body() body: any) {
     return this.interviewsService.generateQuestions(body);
+  }
+
+  @Post('questions')
+  saveQuestions(@Body() body: { interviewId: string; questions: any[] }) {
+    return this.interviewsService.saveQuestions(
+      body.interviewId,
+      body.questions,
+    );
+  }
+
+  @Get('smart-schedule-candidates')
+  getSmartScheduleCandidates() {
+    return this.interviewsService.getSmartScheduleCandidates();
+  }
+
+  @Post('smart-schedule-run')
+  runSmartSchedule(@Body() body: { applicationIds?: string[] }) {
+    return this.interviewsService.runSmartSchedule(body.applicationIds);
   }
 }

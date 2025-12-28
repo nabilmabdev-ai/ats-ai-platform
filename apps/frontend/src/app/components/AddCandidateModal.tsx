@@ -33,7 +33,9 @@ export default function AddCandidateModal({
 
     // File Upload State
     const [file, setFile] = useState<File | null>(null);
+    const [coverLetterFile, setCoverLetterFile] = useState<File | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const coverLetterInputRef = useRef<HTMLInputElement>(null);
 
     if (!isOpen) return null;
 
@@ -78,6 +80,9 @@ export default function AddCandidateModal({
         try {
             const data = new FormData();
             data.append('resume', file);
+            if (coverLetterFile) {
+                data.append('coverLetter', coverLetterFile);
+            }
             if (jobId) data.append('jobId', jobId);
             // We also send basic info if available, but for now just file + jobId
             // If we want to support name/email override during upload, we can add fields here.
@@ -151,8 +156,8 @@ export default function AddCandidateModal({
                     <button
                         onClick={() => setActiveTab('upload')}
                         className={`flex-1 py-3 text-sm font-medium transition-colors flex items-center justify-center gap-2 ${activeTab === 'upload'
-                                ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/30'
-                                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                            ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/30'
+                            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
                             }`}
                     >
                         <Upload className="w-4 h-4" />
@@ -161,8 +166,8 @@ export default function AddCandidateModal({
                     <button
                         onClick={() => setActiveTab('manual')}
                         className={`flex-1 py-3 text-sm font-medium transition-colors flex items-center justify-center gap-2 ${activeTab === 'manual'
-                                ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/30'
-                                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                            ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/30'
+                            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
                             }`}
                     >
                         <FileText className="w-4 h-4" />
@@ -223,32 +228,60 @@ export default function AddCandidateModal({
                         </div>
 
                         {activeTab === 'upload' && (
-                            <div className="mb-6">
-                                <label className="block text-xs font-medium text-gray-700 mb-1">Resume (PDF/Word) *</label>
-                                <div
-                                    onClick={() => fileInputRef.current?.click()}
-                                    className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/30 transition-all group"
-                                >
-                                    <input
-                                        type="file"
-                                        ref={fileInputRef}
-                                        className="hidden"
-                                        accept=".pdf,.doc,.docx"
-                                        onChange={(e) => setFile(e.target.files?.[0] || null)}
-                                    />
-                                    <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform">
-                                        <Upload className="w-6 h-6" />
+                            <>
+                                <div className="mb-6">
+                                    <label className="block text-xs font-medium text-gray-700 mb-1">Resume (PDF/Word) *</label>
+                                    <div
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/30 transition-all group"
+                                    >
+                                        <input
+                                            type="file"
+                                            ref={fileInputRef}
+                                            className="hidden"
+                                            accept=".pdf,.doc,.docx"
+                                            onChange={(e) => setFile(e.target.files?.[0] || null)}
+                                        />
+                                        <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform">
+                                            <Upload className="w-6 h-6" />
+                                        </div>
+                                        {file ? (
+                                            <p className="text-sm font-medium text-blue-600">{file.name}</p>
+                                        ) : (
+                                            <>
+                                                <p className="text-sm font-medium text-gray-900">Click to upload resume</p>
+                                                <p className="text-xs text-gray-500 mt-1">PDF or Word documents</p>
+                                            </>
+                                        )}
                                     </div>
-                                    {file ? (
-                                        <p className="text-sm font-medium text-blue-600">{file.name}</p>
-                                    ) : (
-                                        <>
-                                            <p className="text-sm font-medium text-gray-900">Click to upload resume</p>
-                                            <p className="text-xs text-gray-500 mt-1">PDF or Word documents</p>
-                                        </>
-                                    )}
                                 </div>
-                            </div>
+
+                                <div className="mb-6">
+                                    <label className="block text-xs font-medium text-gray-700 mb-1">Cover Letter / Other (Optional)</label>
+                                    <div
+                                        onClick={() => coverLetterInputRef.current?.click()}
+                                        className="border-2 border-dashed border-gray-200 rounded-xl p-6 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/30 transition-all group"
+                                    >
+                                        <input
+                                            type="file"
+                                            ref={coverLetterInputRef}
+                                            className="hidden"
+                                            accept=".pdf,.doc,.docx"
+                                            onChange={(e) => setCoverLetterFile(e.target.files?.[0] || null)}
+                                        />
+                                        <div className="w-10 h-10 bg-gray-50 text-gray-500 rounded-full flex items-center justify-center mx-auto mb-2 group-hover:scale-110 transition-transform">
+                                            <FileText className="w-5 h-5" />
+                                        </div>
+                                        {coverLetterFile ? (
+                                            <p className="text-sm font-medium text-blue-600">{coverLetterFile.name}</p>
+                                        ) : (
+                                            <>
+                                                <p className="text-sm font-medium text-gray-900">Click to upload cover letter</p>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            </>
                         )}
 
                         {activeTab === 'manual' && (

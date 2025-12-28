@@ -5,9 +5,9 @@
 import { useState, useEffect, use } from 'react';
 import Link from 'next/link';
 import CommentSection from '@/app/components/CommentSection';
-import { 
-    BriefcaseIcon, 
-    CheckIcon, 
+import {
+    BriefcaseIcon,
+    CheckIcon,
     ArrowRightIcon,
     XIcon
 } from '@/components/ui/Icons';
@@ -68,15 +68,44 @@ interface Application {
         experience: number;
         resumeText: string | null;
         resumeS3Key: string | null;
+        applications: {
+            id: string;
+            status: string;
+            createdAt: string;
+            job: { id: string; title: string };
+        }[];
     };
     job: {
         id: string;
         title: string;
         department: string;
     };
+    coverLetterS3Key?: string | null;
     aiParsingData?: {
         skills?: string[];
         education_level?: string;
+        screening?: {
+            pros?: string[];
+            cons?: string[];
+            match_score?: number;
+            screening_summary?: string;
+        };
+    };
+    metadata?: {
+        languages?: string[];
+        preferences?: {
+            type?: string;
+            location_pref?: string;
+            comm_lang?: string;
+        };
+        demographics?: {
+            country_province?: string;
+            work_eligibility?: string;
+        };
+        sourcing?: {
+            channel?: string;
+            detail?: string;
+        };
     };
 }
 
@@ -88,7 +117,7 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
     const [app, setApp] = useState<Application | null>(null);
     const [loading, setLoading] = useState(true);
     const [updating, setUpdating] = useState(false);
-    const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'RESUME'>('OVERVIEW');
+    const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'RESUME' | 'METADATA'>('OVERVIEW');
 
     useEffect(() => {
         if (appId) {
@@ -109,13 +138,13 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
             const token = localStorage.getItem('access_token');
             const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/applications/${app.id}/status`, {
                 method: 'PATCH',
-                headers: { 
+                headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({ status: newStatus }),
             });
-            
+
             if (res.ok) {
                 setApp({ ...app, status: newStatus });
             }
@@ -156,19 +185,19 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
 
     return (
         <div className="flex flex-col h-screen bg-[var(--color-background)] font-sans">
-            
+
             {/* 1. Sticky Header */}
             <header className="sticky top-0 z-20 h-20 w-full bg-white border-b border-[var(--color-border)] px-8 flex items-center justify-between shadow-sm shrink-0">
-                
+
                 {/* Left: Back & Identity */}
                 <div className="flex items-center gap-6">
                     <Link href="/dashboard" className="group flex items-center gap-2 text-xs font-bold text-[var(--color-text-soft)] uppercase tracking-wider hover:text-[var(--color-text-dark)] transition-colors">
-                        <span className="group-hover:-translate-x-1 transition-transform">←</span> 
+                        <span className="group-hover:-translate-x-1 transition-transform">←</span>
                         Back
                     </Link>
-                    
+
                     <div className="h-8 w-px bg-[var(--color-border)]"></div>
-                    
+
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-[var(--color-neutral-100)] flex items-center justify-center text-sm font-bold text-[var(--color-text-soft)] border border-[var(--color-border)]">
                             {app.candidate.firstName[0]}{app.candidate.lastName[0]}
@@ -192,12 +221,12 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
                 {/* Right: Actions */}
                 <div className="flex items-center gap-3">
                     {isRejected ? (
-                         <span className="px-4 py-2 bg-[var(--color-error)]/10 text-[var(--color-error-text)] rounded-[var(--radius-md)] font-bold text-xs uppercase tracking-wider border border-[var(--color-error)]/20">
+                        <span className="px-4 py-2 bg-[var(--color-error)]/10 text-[var(--color-error-text)] rounded-[var(--radius-md)] font-bold text-xs uppercase tracking-wider border border-[var(--color-error)]/20">
                             Rejected
                         </span>
                     ) : (
                         <>
-                            <button 
+                            <button
                                 onClick={() => handleStatusChange('REJECTED')}
                                 disabled={updating}
                                 className="btn-secondary text-[var(--color-error-text)] hover:text-[var(--color-error-text)] hover:bg-[var(--color-error)]/5 hover:border-[var(--color-error)]/30"
@@ -205,7 +234,7 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
                                 Reject Candidate
                             </button>
                             {currentStepIndex < STATUS_STEPS.length - 1 && (
-                                <button 
+                                <button
                                     onClick={() => handleStatusChange(STATUS_STEPS[currentStepIndex + 1])}
                                     disabled={updating}
                                     className="btn-primary flex items-center gap-2"
@@ -226,30 +255,28 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
                     {/* Pipeline Progress Bar */}
                     {!isRejected && (
                         <div className="bg-white border border-[var(--color-border)] rounded-[var(--radius-xl)] p-6 shadow-sm">
-                             <div className="flex justify-between items-center relative">
+                            <div className="flex justify-between items-center relative">
                                 {/* Background Line */}
                                 <div className="absolute top-3 left-0 w-full h-0.5 bg-[var(--color-neutral-100)] -z-10"></div>
-                                
+
                                 {STATUS_STEPS.map((step, index) => {
                                     const isCompleted = index <= currentStepIndex;
                                     const isCurrent = index === currentStepIndex;
-                                    
+
                                     return (
-                                        <div 
-                                            key={step} 
-                                            className="flex flex-col items-center group cursor-pointer" 
+                                        <div
+                                            key={step}
+                                            className="flex flex-col items-center group cursor-pointer"
                                             onClick={() => handleStatusChange(step)}
                                         >
-                                            <div className={`w-7 h-7 rounded-full flex items-center justify-center border-2 transition-all duration-300 z-10 ${
-                                                isCompleted 
-                                                    ? 'bg-[var(--color-primary)] border-[var(--color-primary)] text-white shadow-[var(--shadow-glow)]' 
-                                                    : 'bg-white border-[var(--color-neutral-300)] text-[var(--color-neutral-300)]'
-                                            } ${isCurrent ? 'ring-4 ring-[var(--color-primary)]/20 scale-110' : ''}`}>
+                                            <div className={`w-7 h-7 rounded-full flex items-center justify-center border-2 transition-all duration-300 z-10 ${isCompleted
+                                                ? 'bg-[var(--color-primary)] border-[var(--color-primary)] text-white shadow-[var(--shadow-glow)]'
+                                                : 'bg-white border-[var(--color-neutral-300)] text-[var(--color-neutral-300)]'
+                                                } ${isCurrent ? 'ring-4 ring-[var(--color-primary)]/20 scale-110' : ''}`}>
                                                 {isCompleted && <CheckIcon className="w-4 h-4" />}
                                             </div>
-                                            <span className={`mt-3 text-[10px] font-bold uppercase tracking-widest transition-colors ${
-                                                isCurrent ? 'text-[var(--color-primary)]' : isCompleted ? 'text-[var(--color-text-dark)]' : 'text-[var(--color-text-soft)]'
-                                            }`}>
+                                            <span className={`mt-3 text-[10px] font-bold uppercase tracking-widest transition-colors ${isCurrent ? 'text-[var(--color-primary)]' : isCompleted ? 'text-[var(--color-text-dark)]' : 'text-[var(--color-text-soft)]'
+                                                }`}>
                                                 {step}
                                             </span>
                                         </div>
@@ -264,36 +291,45 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
 
                         {/* LEFT COLUMN: Profile & Resume */}
                         <div className="lg:col-span-2 space-y-6">
-                            
+
                             {/* Tabs */}
                             <div className="flex gap-6 border-b border-[var(--color-border)] px-2">
                                 <button
                                     onClick={() => setActiveTab('OVERVIEW')}
-                                    className={`pb-3 text-sm font-bold uppercase tracking-wider transition-all border-b-2 ${
-                                        activeTab === 'OVERVIEW' 
-                                            ? 'border-[var(--color-primary)] text-[var(--color-primary)]' 
-                                            : 'border-transparent text-[var(--color-text-soft)] hover:text-[var(--color-text-dark)]'
-                                    }`}
+                                    className={`pb-3 text-sm font-bold uppercase tracking-wider transition-all border-b-2 ${activeTab === 'OVERVIEW'
+                                        ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
+                                        : 'border-transparent text-[var(--color-text-soft)] hover:text-[var(--color-text-dark)]'
+                                        }`}
                                 >
                                     Overview & AI Analysis
                                 </button>
                                 <button
                                     onClick={() => setActiveTab('RESUME')}
-                                    className={`pb-3 text-sm font-bold uppercase tracking-wider transition-all border-b-2 ${
-                                        activeTab === 'RESUME' 
-                                            ? 'border-[var(--color-primary)] text-[var(--color-primary)]' 
-                                            : 'border-transparent text-[var(--color-text-soft)] hover:text-[var(--color-text-dark)]'
-                                    }`}
+                                    className={`pb-3 text-sm font-bold uppercase tracking-wider transition-all border-b-2 ${activeTab === 'RESUME'
+                                        ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
+                                        : 'border-transparent text-[var(--color-text-soft)] hover:text-[var(--color-text-dark)]'
+                                        }`}
                                 >
                                     Resume Preview
                                 </button>
+                                {app.metadata && (
+                                    <button
+                                        onClick={() => setActiveTab('METADATA')}
+                                        className={`pb-3 text-sm font-bold uppercase tracking-wider transition-all border-b-2 ${activeTab === 'METADATA'
+                                            ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
+                                            : 'border-transparent text-[var(--color-text-soft)] hover:text-[var(--color-text-dark)]'
+                                            }`}
+                                    >
+                                        Additional Info
+                                    </button>
+                                )}
                             </div>
 
                             {/* Tab Content */}
                             <div className="bg-white rounded-[var(--radius-xl)] border border-[var(--color-border-subtle)] shadow-sm min-h-[500px] overflow-hidden">
                                 {activeTab === 'OVERVIEW' && (
                                     <div className="p-8 space-y-8 animate-fade-in">
-                                        
+
                                         {/* AI Executive Summary */}
                                         <div className="bg-gradient-to-br from-[var(--color-secondary-blue)]/10 to-[var(--color-secondary-lilac)]/10 rounded-[var(--radius-lg)] p-6 border border-[var(--color-secondary-blue)]/20">
                                             <h3 className="text-xs font-bold text-[var(--color-info-text)] uppercase tracking-widest mb-3 flex items-center gap-2">
@@ -303,6 +339,41 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
                                                 {app.aiSummary || "No summary generated yet. This candidate is waiting for processing."}
                                             </p>
                                         </div>
+
+                                        {/* Pros & Cons Analysis */}
+                                        {(app.aiParsingData?.screening?.pros?.length || app.aiParsingData?.screening?.cons?.length) ? (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                {/* Pros */}
+                                                <div className="bg-green-50/50 rounded-[var(--radius-lg)] p-6 border border-green-100">
+                                                    <h3 className="text-xs font-bold text-green-700 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                                        <span className="text-lg">👍</span> Key Strengths
+                                                    </h3>
+                                                    <ul className="space-y-2">
+                                                        {app.aiParsingData?.screening?.pros?.map((pro, i) => (
+                                                            <li key={i} className="flex items-start gap-2 text-sm text-green-900">
+                                                                <span className="mt-1.5 w-1 h-1 rounded-full bg-green-500 shrink-0"></span>
+                                                                <span className="leading-relaxed">{pro}</span>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+
+                                                {/* Cons */}
+                                                <div className="bg-red-50/50 rounded-[var(--radius-lg)] p-6 border border-red-100">
+                                                    <h3 className="text-xs font-bold text-red-700 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                                        <span className="text-lg">👎</span> Areas of Concern
+                                                    </h3>
+                                                    <ul className="space-y-2">
+                                                        {app.aiParsingData?.screening?.cons?.map((con, i) => (
+                                                            <li key={i} className="flex items-start gap-2 text-sm text-red-900">
+                                                                <span className="mt-1.5 w-1 h-1 rounded-full bg-red-500 shrink-0"></span>
+                                                                <span className="leading-relaxed">{con}</span>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            </div>
+                                        ) : null}
 
                                         {/* Info Grid */}
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -367,14 +438,26 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
                                                 <FileTextIcon className="w-4 h-4 text-[var(--color-text-soft)]" />
                                                 Parsed Resume Content
                                             </div>
-                                            <a 
-                                                href={getResumeUrl(app.candidate.resumeS3Key)} 
-                                                target="_blank"
-                                                download
-                                                className="btn-ghost text-xs flex items-center gap-2"
-                                            >
-                                                <DownloadIcon className="w-3.5 h-3.5" /> Download Original
-                                            </a>
+                                            <div className="flex items-center gap-3">
+                                                {app.coverLetterS3Key && (
+                                                    <a
+                                                        href={getResumeUrl(app.coverLetterS3Key)}
+                                                        target="_blank"
+                                                        download
+                                                        className="btn-ghost text-xs flex items-center gap-2 text-[var(--color-primary)] bg-[var(--color-primary)]/5 hover:bg-[var(--color-primary)]/10 border border-[var(--color-primary)]/20"
+                                                    >
+                                                        <FileTextIcon className="w-3.5 h-3.5" /> Download Cover Letter
+                                                    </a>
+                                                )}
+                                                <a
+                                                    href={getResumeUrl(app.candidate.resumeS3Key)}
+                                                    target="_blank"
+                                                    download
+                                                    className="btn-ghost text-xs flex items-center gap-2"
+                                                >
+                                                    <DownloadIcon className="w-3.5 h-3.5" /> Download Resume
+                                                </a>
+                                            </div>
                                         </div>
                                         <div className="flex-1 p-8 overflow-y-auto bg-white">
                                             <pre className="font-mono text-xs text-[var(--color-text-dark)] whitespace-pre-wrap leading-relaxed">
@@ -383,38 +466,182 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
                                         </div>
                                     </div>
                                 )}
+
+                                {activeTab === 'METADATA' && app.metadata && (
+                                    <div className="p-8 space-y-8 animate-fade-in">
+                                        {/* Languages */}
+                                        {app.metadata.languages && app.metadata.languages.length > 0 && (
+                                            <div>
+                                                <h4 className="text-xs font-bold text-[var(--color-text-soft)] uppercase tracking-widest mb-4 border-b border-[var(--color-border)] pb-2">Languages</h4>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {app.metadata.languages.map((lang, i) => (
+                                                        <span key={i} className="px-3 py-1.5 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold border border-blue-100">
+                                                            {lang}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Preferences */}
+                                        {app.metadata.preferences && (
+                                            <div>
+                                                <h4 className="text-xs font-bold text-[var(--color-text-soft)] uppercase tracking-widest mb-4 border-b border-[var(--color-border)] pb-2">Preferences</h4>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
+                                                        <span className="text-xs text-gray-500 uppercase tracking-wider font-bold block mb-1">Work Type</span>
+                                                        <span className="text-sm font-medium text-gray-900">{app.metadata.preferences.type || 'N/A'}</span>
+                                                    </div>
+                                                    <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
+                                                        <span className="text-xs text-gray-500 uppercase tracking-wider font-bold block mb-1">Preferred Location</span>
+                                                        <span className="text-sm font-medium text-gray-900">{app.metadata.preferences.location_pref || 'N/A'}</span>
+                                                    </div>
+                                                    <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
+                                                        <span className="text-xs text-gray-500 uppercase tracking-wider font-bold block mb-1">Communication Language</span>
+                                                        <span className="text-sm font-medium text-gray-900">{app.metadata.preferences.comm_lang || 'N/A'}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Demographics */}
+                                        {app.metadata.demographics && (
+                                            <div>
+                                                <h4 className="text-xs font-bold text-[var(--color-text-soft)] uppercase tracking-widest mb-4 border-b border-[var(--color-border)] pb-2">Demographics</h4>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
+                                                        <span className="text-xs text-gray-500 uppercase tracking-wider font-bold block mb-1">Location (Province)</span>
+                                                        <span className="text-sm font-medium text-gray-900">{app.metadata.demographics.country_province || 'N/A'}</span>
+                                                    </div>
+                                                    <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
+                                                        <span className="text-xs text-gray-500 uppercase tracking-wider font-bold block mb-1">Work Eligibility</span>
+                                                        <span className="text-sm font-medium text-gray-900">{app.metadata.demographics.work_eligibility || 'N/A'}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Sourcing */}
+                                        {app.metadata.sourcing && (
+                                            <div>
+                                                <h4 className="text-xs font-bold text-[var(--color-text-soft)] uppercase tracking-widest mb-4 border-b border-[var(--color-border)] pb-2">Sourcing Source</h4>
+                                                <div className="flex items-center gap-4 p-4 bg-purple-50 rounded-lg border border-purple-100">
+                                                    <div>
+                                                        <span className="text-xs text-purple-500 uppercase tracking-wider font-bold block mb-1">Channel</span>
+                                                        <span className="text-sm font-bold text-purple-900">{app.metadata.sourcing.channel || 'Unknown'}</span>
+                                                    </div>
+                                                    <div className="h-8 w-px bg-purple-200"></div>
+                                                    <div>
+                                                        <span className="text-xs text-purple-500 uppercase tracking-wider font-bold block mb-1">Detail</span>
+                                                        <span className="text-sm font-medium text-purple-900">{app.metadata.sourcing.detail || 'N/A'}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         </div>
 
                         {/* RIGHT COLUMN: Sidebar Actions & Comments */}
                         <div className="lg:col-span-1 space-y-6">
-                            
+
+                            {/* Screening Checklist - Only visible in SCREENING status */}
+                            {app.status === 'SCREENING' && (
+                                <div className="bg-indigo-50/50 p-6 rounded-[var(--radius-xl)] border border-indigo-100 shadow-sm animate-fade-in">
+                                    <h3 className="text-xs font-bold text-indigo-800 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                        <span className="text-lg">📋</span> Screening Checklist
+                                    </h3>
+                                    <div className="space-y-3">
+                                        {[
+                                            "Resume Reviewed",
+                                            "Visa Status Confirmed",
+                                            "Salary Expectations Checked",
+                                            "Notice Period Confirmed",
+                                            "Role Fit Assessment"
+                                        ].map((item, i) => (
+                                            <label key={i} className="flex items-center gap-3 p-2 rounded-lg hover:bg-indigo-100/50 transition-colors cursor-pointer group">
+                                                <div className="relative flex items-center">
+                                                    <input type="checkbox" className="peer w-4 h-4 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer" />
+                                                </div>
+                                                <span className="text-sm text-indigo-900 font-medium group-hover:text-indigo-700 transition-colors">{item}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Quick Actions Card */}
                             <div className="bg-white p-6 rounded-[var(--radius-xl)] border border-[var(--color-border-subtle)] shadow-sm">
                                 <h3 className="text-xs font-bold text-[var(--color-text-soft)] uppercase tracking-widest mb-4">Quick Actions</h3>
                                 <div className="space-y-3">
                                     {app.status === 'INTERVIEW' && (
-                                        <Link 
-                                            href={`/applications/${app.id}/interview`} 
+                                        <Link
+                                            href={`/applications/${app.id}/interview`}
                                             className="btn-primary w-full flex justify-center shadow-[var(--shadow-glow)]"
                                         >
                                             Start Interview Session
                                         </Link>
                                     )}
                                     {app.status === 'OFFER' && (
-                                        <Link 
-                                            href="/offers" 
+                                        <Link
+                                            href="/offers"
                                             className="btn-primary w-full flex justify-center shadow-[var(--shadow-glow)]"
                                         >
                                             Create Offer Letter
                                         </Link>
                                     )}
-                                    <a 
-                                        href={`mailto:${app.candidate.email}`} 
+                                    <a
+                                        href={`mailto:${app.candidate.email}`}
                                         className="btn-secondary w-full flex justify-center"
                                     >
                                         Email Candidate
                                     </a>
+                                </div>
+                            </div>
+
+                            {/* Candidate History Card */}
+                            <div className="bg-white p-6 rounded-[var(--radius-xl)] border border-[var(--color-border-subtle)] shadow-sm">
+                                <h3 className="text-xs font-bold text-[var(--color-text-soft)] uppercase tracking-widest mb-4">
+                                    Application History ({app.candidate.applications.length})
+                                </h3>
+
+                                <div className="space-y-3">
+                                    {app.candidate.applications.map((historyApp) => {
+                                        // Don't link to the current page we are already on, but show it for context
+                                        const isCurrent = historyApp.id === app.id;
+
+                                        return (
+                                            <div
+                                                key={historyApp.id}
+                                                className={`flex items-center justify-between p-3 rounded-lg border ${isCurrent ? 'bg-[var(--color-primary)]/5 border-[var(--color-primary)]/20' : 'bg-white border-[var(--color-border-subtle)] hover:border-[var(--color-primary)]/30 transition-colors'}`}
+                                            >
+                                                <div className="flex flex-col overflow-hidden">
+                                                    {isCurrent ? (
+                                                        <span className="text-xs font-bold text-[var(--color-text-dark)] truncate">
+                                                            {historyApp.job.title}
+                                                            <span className="ml-2 text-[10px] text-[var(--color-primary)] font-normal">(Current)</span>
+                                                        </span>
+                                                    ) : (
+                                                        <Link href={`/applications/${historyApp.id}`} className="text-xs font-bold text-[var(--color-text-dark)] hover:text-[var(--color-primary)] truncate transition-colors">
+                                                            {historyApp.job.title}
+                                                        </Link>
+                                                    )}
+                                                    <span className="text-[10px] text-[var(--color-text-soft)] mt-1">
+                                                        {new Date(historyApp.createdAt).toLocaleDateString()}
+                                                    </span>
+                                                </div>
+
+                                                <div className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider
+                                                    ${historyApp.status === 'HIRED' ? 'bg-green-50 text-green-700 border-green-100' :
+                                                        historyApp.status === 'REJECTED' ? 'bg-red-50 text-red-700 border-red-100' :
+                                                            'bg-gray-50 text-gray-600 border-gray-200'
+                                                    }`}>
+                                                    {historyApp.status}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
 

@@ -4,8 +4,25 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { DraggableProvided, DraggableStateSnapshot } from '@hello-pangea/dnd';
-import { Application } from '../dashboard/PipelineBoard';
 import MergeCandidateModal from './MergeCandidateModal';
+
+// --- Types ---
+// Note: Ideally this should be imported from a shared types file or PipelineBoard
+interface Application {
+    id: string;
+    job: { id: string; title: string };
+    candidate: {
+        id: string;
+        email: string;
+        firstName: string;
+        lastName: string;
+        _count?: { applications: number }; // Added count
+    };
+    aiSummary: string;
+    status: string;
+    aiScore: number;
+    updatedAt?: string;
+}
 
 interface CandidateCardProps {
     app: Application;
@@ -35,7 +52,19 @@ const Avatar = ({ name }: { name: string }) => {
     );
 };
 
-const MatchBadge = ({ score }: { score: number }) => {
+const MatchBadge = ({ score, isParsing }: { score: number, isParsing?: boolean }) => {
+    if (isParsing) {
+        return (
+            <div className="rounded-[var(--radius-sm)] px-2 py-0.5 text-xs font-bold bg-blue-50 text-blue-600 border border-blue-100 flex items-center gap-1 animate-pulse">
+                <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Parsing...
+            </div>
+        );
+    }
+
     // If score is > 1 (e.g. 85), assume it's already a percentage.
     // If it's < 1 (e.g. 0.85), multiply by 100.
     const percentage = score > 1 ? Math.round(score) : Math.round(score * 100);
@@ -57,7 +86,11 @@ export default function CandidateCard({ app, provided, snapshot }: CandidateCard
     const { candidate, aiScore, job, aiSummary, status } = app;
     const fullName = `${candidate.firstName} ${candidate.lastName}`;
 
+    // Check for repeat candidate
+    const isRepeat = candidate._count?.applications && candidate._count.applications > 1;
+
     const [showMergeModal, setShowMergeModal] = useState(false);
+    const isParsing = !aiSummary || aiSummary === '';
 
     return (
         <>
@@ -77,14 +110,24 @@ export default function CandidateCard({ app, provided, snapshot }: CandidateCard
             `}
             >
                 <div className="flex items-start justify-between mb-3">
-                    <Avatar name={fullName} />
-                    <MatchBadge score={aiScore} />
+                    <div className="relative">
+                        <Avatar name={fullName} />
+                        {isRepeat && (
+                            <span
+                                className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[10px] font-bold text-white ring-2 ring-white"
+                                title="Repeat Candidate (Applied multiple times)"
+                            >
+                                R
+                            </span>
+                        )}
+                    </div>
+                    <MatchBadge score={aiScore} isParsing={isParsing} />
                 </div>
 
                 <div className="mb-3">
                     {/* Clicking name goes to Application Details */}
                     <Link href={`/applications/${app.id}`} className="block group">
-                        <p className="font-bold text-[#1A1B25] group-hover:text-[var(--color-primary)] transition-colors">
+                        <p className="font-bold text-[#1A1B25] group-hover:text-[var(--color-primary)] transition-colors flex items-center gap-2">
                             {fullName}
                         </p>
                     </Link>

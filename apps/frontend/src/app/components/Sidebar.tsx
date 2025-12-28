@@ -72,6 +72,11 @@ const Icons = {
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
     </svg>
+  ),
+  Import: (className: string) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+    </svg>
   )
 };
 
@@ -212,6 +217,7 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
         <NavItem href="/team" label="Team" icon="Users" isCollapsed={isCollapsed} />
         <NavItem href="/settings" label="Settings" icon="Settings" isCollapsed={isCollapsed} />
         <NavItem href="/settings/templates" label="Templates" icon="Template" isCollapsed={isCollapsed} />
+        <NavItem href="/settings/import" label="Import Candidates" icon="Import" isCollapsed={isCollapsed} />
       </div>
 
       {/* 3. Footer / Toggle */}

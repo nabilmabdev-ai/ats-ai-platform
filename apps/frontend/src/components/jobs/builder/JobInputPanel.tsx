@@ -6,6 +6,7 @@ import { SparkleIcon } from '@/components/ui/Icons';
 interface JobTemplate {
     id: string;
     name: string;
+    aiTone?: string; // Add optional tone
 }
 
 interface KnockoutQuestion {
@@ -31,6 +32,7 @@ interface JobInputPanelProps {
     updateKoQuestion: (index: number, field: string, value: string) => void;
     tone: string;
     setTone: (value: string) => void;
+    companyTone?: string; // Add company tone prop
 }
 
 export default function JobInputPanel({
@@ -41,8 +43,18 @@ export default function JobInputPanel({
     onGenerate, isGenerating,
     errors,
     koQuestions, addKoQuestion, removeKoQuestion, updateKoQuestion,
-    tone, setTone
+    tone, setTone,
+    companyTone
 }: JobInputPanelProps) {
+    // Resolve label for "Default" choice
+    let defaultLabel = "Default (Inherit)";
+    if (selectedTemplate?.aiTone) {
+        defaultLabel = `Default (Inherit Template: ${selectedTemplate.aiTone})`;
+    } else if (companyTone) {
+        defaultLabel = `Default (Inherit Company: ${companyTone})`;
+    } else {
+        defaultLabel = "Default (Inherit: Professional)";
+    }
     return (
         <div className="flex flex-col gap-8 p-8">
 
@@ -105,7 +117,7 @@ export default function JobInputPanel({
                                 onChange={(e) => setTone(e.target.value)}
                                 className="flex w-full appearance-none overflow-hidden rounded-lg border border-[var(--color-border)] bg-white h-14 px-4 pr-10 text-base font-normal text-[var(--color-text-dark)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/50 transition-all cursor-pointer"
                             >
-                                <option value="">Default (Inherit)</option>
+                                <option value="">{defaultLabel}</option>
                                 <option value="Professional">Professional</option>
                                 <option value="Casual">Casual</option>
                                 <option value="Energetic">Energetic</option>

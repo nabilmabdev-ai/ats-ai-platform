@@ -8,7 +8,10 @@ import {
   Delete,
   Query,
   ParseIntPipe,
+  UseGuards,
+  Request,
 } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JobsService } from './jobs.service';
 import { CreateJobDto } from './dto/create-job.dto';
 import { UpdateJobDto } from './dto/update-job.dto';
@@ -23,6 +26,12 @@ export class JobsController {
   @Get('templates')
   getTemplates() {
     return this.jobsService.getJobTemplates();
+  }
+
+  // --- NEW: Global Config ---
+  @Get('config')
+  getConfig() {
+    return this.jobsService.getJobConfig();
   }
 
   // --- UPDATED: AI Generation ---
@@ -48,9 +57,19 @@ export class JobsController {
 
   // --- NEW: Approval Endpoint ---
   @Post(':id/approve')
-  approve(@Param('id') id: string, @Body() body: { userId: string }) {
-    // In a real app, userId comes from @Request() req.user.id via AuthGuard
-    return this.jobsService.approveJob(id, body.userId);
+  @UseGuards(JwtAuthGuard)
+  approve(@Param('id') id: string, @Request() req: any) {
+    return this.jobsService.approveJob(id, req.user.id);
+  }
+
+  @Post(':id/duplicate')
+  duplicate(@Param('id') id: string, @Body() body: { userId: string }) {
+    return this.jobsService.duplicateJob(id, body.userId);
+  }
+
+  @Post(':id/close')
+  close(@Param('id') id: string) {
+    return this.jobsService.closeJob(id);
   }
 
   @Get(':id/matches')
@@ -74,6 +93,11 @@ export class JobsController {
   @Post()
   create(@Body() createJobDto: CreateJobDto) {
     return this.jobsService.create(createJobDto);
+  }
+
+  @Post('bulk')
+  bulkCreate(@Body() body: { titles: string[] }) {
+    return this.jobsService.bulkCreate(body.titles);
   }
 
   @Get()

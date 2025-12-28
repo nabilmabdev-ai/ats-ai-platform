@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 
 interface Offer {
   id: string;
-  status: 'DRAFT' | 'SENT' | 'ACCEPTED' | 'DECLINED';
+  status: 'DRAFT' | 'SENT' | 'ACCEPTED' | 'DECLINED' | 'FAILED';
   salary: number;
   equity: string;
   startDate: string;
@@ -124,6 +124,27 @@ export default function OfferManager({ applicationId, candidateName, jobTitle, o
     } catch (e) { console.error(e); }
   };
 
+  // 5. Regenerate PDF
+  const handleRegenerate = async () => {
+    if (!offer) return;
+    setIsSubmitting(true);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/offers/${offer.id}/regenerate`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        setOffer({ ...offer, status: 'DRAFT', generatedOfferUrl: undefined });
+        alert('PDF regeneration triggered! 🔄');
+      } else {
+        alert('Failed to trigger regeneration.');
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   if (loading) return <div className="p-4 text-sm text-[var(--color-slate)]">Checking offer status...</div>;
 
   // --- VIEW: NO OFFER YET ---
@@ -226,6 +247,18 @@ export default function OfferManager({ applicationId, candidateName, jobTitle, o
           <span className="text-xs uppercase tracking-wide opacity-80">Closed</span>
         </div>
       )}
+      {offer.status === 'FAILED' && (
+        <div className="bg-red-100 text-red-700 px-6 py-3 text-sm font-bold flex justify-between items-center border-b border-red-200">
+          <span>⚠️ PDF Generation Failed</span>
+          <button
+            onClick={handleRegenerate}
+            disabled={isSubmitting}
+            className="text-xs bg-white border border-red-300 px-3 py-1 rounded hover:bg-red-50 disabled:opacity-50"
+          >
+            {isSubmitting ? 'Retrying...' : '🔄 Retry Generation'}
+          </button>
+        </div>
+      )}
 
       <div className="p-6 flex-1 flex flex-col">
         <div className="flex justify-between items-start mb-6">
@@ -276,13 +309,30 @@ export default function OfferManager({ applicationId, candidateName, jobTitle, o
           </div>
           <div className="flex justify-end gap-3">
             {offer.status === 'DRAFT' && (
-              <button
-                onClick={handleSend}
-                disabled={isSubmitting}
-                className="bg-[var(--color-primary)] text-white px-6 py-2 rounded-[var(--radius-md)] hover:bg-blue-700 font-bold shadow-[var(--shadow-sm)] disabled:opacity-50 transition-all text-sm"
-              >
-                {isSubmitting ? 'Sending...' : '📧 Send to Candidate'}
-              </button>
+              <>
+                {/* Show Regenerate if stuck in Draft without URL for a long time, or just allow it always if no URL?
+                    Actually, if status is DRAFT and no URL, it might be generating.
+                    But if it failed silently before we added FAILED status, user is stuck.
+                    So let's adding a small "Regenerate" link if no URL.
+                */}
+                {!offer.generatedOfferUrl && (
+                  <button
+                    onClick={handleRegenerate}
+                    disabled={isSubmitting}
+                    className="text-[var(--color-slate)] text-xs hover:text-[var(--color-gunmetal)] mr-4 underline"
+                  >
+                    Regenerate PDF
+                  </button>
+                )}
+
+                <button
+                  onClick={handleSend}
+                  disabled={isSubmitting || !offer.generatedOfferUrl}
+                  className="bg-[var(--color-primary)] text-white px-6 py-2 rounded-[var(--radius-md)] hover:bg-blue-700 font-bold shadow-[var(--shadow-sm)] disabled:opacity-50 transition-all text-sm"
+                >
+                  {isSubmitting ? 'Sending...' : '📧 Send to Candidate'}
+                </button>
+              </>
             )}
 
             {offer.status === 'SENT' && (

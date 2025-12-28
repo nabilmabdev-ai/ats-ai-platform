@@ -65,6 +65,12 @@ model User {
   role         Role
 
   availability Json?
+  
+  // --- NEW: Google Calendar Sync ---
+  googleAccessToken  String?
+  googleRefreshToken String?
+  googleTokenExpiry  DateTime?
+  googleCalendarId   String?  @default("primary")
 
   createdAt DateTime @default(now())
 
@@ -76,6 +82,8 @@ model User {
   
   // --- NEW: Applications Owned ---
   appsOwned    Application[] @relation("AppOwner")
+
+  createdTemplates QuestionTemplate[] @relation("TemplateCreator")
 }
 
 model JobWorkflowTemplate {
@@ -220,6 +228,11 @@ model Application {
   isAutoRejected  Boolean @default(false)
   aiParsingError  Boolean @default(false)
 
+  coverLetterS3Key String?
+  
+  // --- NEW: Metadata for CSV Import ---
+  metadata Json?
+
   // --- NEW: Tags & Ownership ---
   tags      String[]  @default([])
   ownerId   String?
@@ -262,6 +275,9 @@ model Interview {
   // Workaround for partial unique index: only set this when status is CONFIRMED
   confirmedSlot DateTime?
   @@unique([interviewerId, confirmedSlot])
+
+  // --- NEW: Custom Questions List ---
+  questions Json?
 }
 
 model Comment {
@@ -308,6 +324,7 @@ enum OfferStatus {
   SENT
   ACCEPTED
   DECLINED
+  FAILED
 }
 
 enum ESignStatus {
@@ -341,4 +358,18 @@ model Company {
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+model QuestionTemplate {
+  id        String   @id @default(uuid())
+  title     String
+  questions Json     // Array of { id, text, category }
+  
+  isGlobal  Boolean  @default(false)
+  
+  createdById String
+  createdBy   User     @relation("TemplateCreator", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

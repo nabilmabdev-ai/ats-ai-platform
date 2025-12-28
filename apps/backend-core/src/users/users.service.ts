@@ -19,8 +19,8 @@ export class UsersService {
         fullName: dto.fullName,
         role: dto.role as any,
         passwordHash: passwordHash,
-        availability: {
-          timezone: 'Europe/Paris',
+        availability: dto.availability || {
+          timezone: 'UTC',
           workHours: { start: 9, end: 18 },
         },
       },
@@ -34,6 +34,20 @@ export class UsersService {
     return this.prisma.user.update({
       where: { id },
       data: { passwordHash },
+    });
+  }
+
+  async update(id: string, data: any) {
+    // If updating password, hash it
+    if (data.password) {
+      const salt = await bcrypt.genSalt();
+      data.passwordHash = await bcrypt.hash(data.password, salt);
+      delete data.password;
+    }
+
+    return this.prisma.user.update({
+      where: { id },
+      data,
     });
   }
 

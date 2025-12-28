@@ -47,7 +47,13 @@ export class OffersController {
     return this.offersService.sendOffer(id);
   }
 
-  // 3. Candidate/Recruiter Updates Status (Accept/Decline)
+  // 3. Regenerate PDF
+  @Post(':id/regenerate')
+  regenerate(@Param('id') id: string) {
+    return this.offersService.regeneratePdf(id);
+  }
+
+  // 4. Candidate/Recruiter Updates Status (Accept/Decline)
   @Patch(':id/status')
   updateStatus(@Param('id') id: string, @Body() body: { status: OfferStatus }) {
     return this.offersService.updateStatus(id, body.status);

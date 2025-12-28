@@ -12,8 +12,10 @@ import {
   HttpStatus,
   Query,
   ParseIntPipe,
+  UploadedFiles,
+  NotFoundException, // Add this
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { ApplicationsService } from './applications.service';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
@@ -68,30 +70,40 @@ export class ApplicationsController {
 
   @Post()
   @UseInterceptors(
-    FileInterceptor('resume', {
-      storage: diskStorage({
-        destination: './uploads',
-        filename: (req, file, cb) => {
-          const randomName = Array(32)
-            .fill(null)
-            .map(() => Math.round(Math.random() * 16).toString(16))
-            .join('');
-          cb(null, `${randomName}${extname(file.originalname)}`);
+    FileFieldsInterceptor(
+      [
+        { name: 'resume', maxCount: 1 },
+        { name: 'coverLetter', maxCount: 1 },
+      ],
+      {
+        storage: diskStorage({
+          destination: './uploads',
+          filename: (req, file, cb) => {
+            const randomName = Array(32)
+              .fill(null)
+              .map(() => Math.round(Math.random() * 16).toString(16))
+              .join('');
+            cb(null, `${randomName}${extname(file.originalname)}`);
+          },
+        }),
+        fileFilter: (req, file, cb) => {
+          if (!file.originalname.match(/\.(pdf|doc|docx)$/)) {
+            return cb(
+              new BadRequestException('Only PDF/Word files are allowed!'),
+              false,
+            );
+          }
+          cb(null, true);
         },
-      }),
-      fileFilter: (req, file, cb) => {
-        if (!file.originalname.match(/\.(pdf|doc|docx)$/)) {
-          return cb(
-            new BadRequestException('Only PDF/Word files are allowed!'),
-            false,
-          );
-        }
-        cb(null, true);
       },
-    }),
+    ),
   )
   create(
-    @UploadedFile() file: any,
+    @UploadedFiles()
+    files: {
+      resume?: any[];
+      coverLetter?: any[];
+    },
     @Body()
     body: {
       jobId: string;
@@ -101,9 +113,12 @@ export class ApplicationsController {
       knockoutAnswers?: string;
     },
   ) {
-    if (!file) {
+    if (!files || !files.resume || files.resume.length === 0) {
       throw new BadRequestException('Resume file is required');
     }
+
+    const resumeFile = files.resume[0];
+    const coverLetterFile = files.coverLetter ? files.coverLetter[0] : null;
 
     // Parse Knockout Answers (FormData sends them as string)
     let answers = {};
@@ -123,7 +138,10 @@ export class ApplicationsController {
         phone: body.phone,
         knockoutAnswers: answers,
       },
-      file.path,
+      {
+        resume: resumeFile.path,
+        coverLetter: coverLetterFile ? coverLetterFile.path : undefined,
+      },
     );
   }
 
@@ -143,6 +161,15 @@ export class ApplicationsController {
       limit,
       showClosed,
     );
+  }
+
+  // [NEW] Batch fetch for polling
+  @Get('batch')
+  async findBatch(@Query('ids') ids: string) {
+    if (!ids) return [];
+    const idArray = ids.split(',').filter((id) => id.trim().length > 0);
+    if (idArray.length === 0) return [];
+    return this.applicationsService.findByIds(idArray);
   }
 
   @Get(':id')
@@ -179,5 +206,12 @@ export class ApplicationsController {
       body.subject,
       body.body,
     );
+  }
+
+  // [NEW] Endpoint to force re-process a specific application
+  @Patch(':id/reprocess')
+  @HttpCode(HttpStatus.OK)
+  reprocess(@Param('id') id: string) {
+    return this.applicationsService.reprocessApplication(id);
   }
 }

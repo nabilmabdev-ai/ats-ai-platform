@@ -3,7 +3,9 @@
 import { useState } from 'react';
 import JobCard from './JobCard'; // Your existing card (Grid Item)
 import Link from 'next/link';
-import { BriefcaseIcon, SearchIcon } from '@/components/ui/Icons';
+import { BriefcaseIcon, SearchIcon, CopyIcon } from '@/components/ui/Icons';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/components/AuthProvider';
 
 // Rename your existing "JobCard.tsx" to "JobListItem.tsx" if you want the Table view to look like rows, 
 // OR reuse JobCard as the "Grid" item and make a new Table view.
@@ -23,7 +25,7 @@ interface Job {
     remoteType?: string;
 }
 
-const JobTable = ({ jobs }: { jobs: Job[] }) => (
+const JobTable = ({ jobs, onDuplicate }: { jobs: Job[]; onDuplicate: (id: string) => void }) => (
     <div className="bg-white rounded-[var(--radius-xl)] shadow-sm border border-[var(--color-border)] overflow-hidden animate-fade-in">
         <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-[var(--color-border)]">
@@ -59,9 +61,21 @@ const JobTable = ({ jobs }: { jobs: Job[] }) => (
                                 {new Date(job.createdAt).toLocaleDateString()}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-right">
-                                <Link href={`/vacancies/${job.id}`} className="text-[var(--color-primary)] hover:underline text-sm font-bold">
-                                    View
-                                </Link>
+                                <div className="flex items-center justify-end gap-3">
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onDuplicate(job.id);
+                                        }}
+                                        className="text-[var(--color-text-soft)] hover:text-[var(--color-primary)] transition-colors"
+                                        title="Duplicate Job"
+                                    >
+                                        <CopyIcon className="w-4 h-4" />
+                                    </button>
+                                    <Link href={`/vacancies/${job.id}`} className="text-[var(--color-primary)] hover:underline text-sm font-bold">
+                                        View
+                                    </Link>
+                                </div>
                             </td>
                         </tr>
                     ))}
@@ -74,6 +88,32 @@ const JobTable = ({ jobs }: { jobs: Job[] }) => (
 export default function DashboardJobs({ jobs }: { jobs: Job[] }) {
     // Default to GRID on dashboard usually looks better, but we can default to TABLE
     const [viewMode, setViewMode] = useState<'GRID' | 'TABLE'>('GRID');
+    const router = useRouter();
+    const { user } = useAuth();
+    const [isDuplicating, setIsDuplicating] = useState(false);
+
+    const handleDuplicate = async (id: string) => {
+        if (isDuplicating) return;
+        if (!confirm('Are you sure you want to duplicate this job?')) return;
+
+        setIsDuplicating(true);
+        try {
+            const res = await fetch(`http://localhost:3001/jobs/${id}/duplicate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: user?.id }),
+            });
+
+            if (!res.ok) throw new Error('Failed to duplicate job');
+
+            router.refresh();
+        } catch (error) {
+            console.error('Error duplicating job:', error);
+            alert('Failed to duplicate job');
+        } finally {
+            setIsDuplicating(false);
+        }
+    };
 
     return (
         <>
@@ -129,13 +169,13 @@ export default function DashboardJobs({ jobs }: { jobs: Job[] }) {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-[var(--space-6)] pb-[var(--space-10)]">
                         {jobs.map((job, index) => (
                             <div key={job.id} className="animate-scale-in h-full" style={{ animationDelay: `${index * 50}ms` }}>
-                                <JobCard job={job} />
+                                <JobCard job={job} onDuplicate={handleDuplicate} />
                             </div>
                         ))}
                     </div>
                 ) : (
                     // Using the Table component defined above
-                    <JobTable jobs={jobs} />
+                    <JobTable jobs={jobs} onDuplicate={handleDuplicate} />
                 )
             )}
         </>

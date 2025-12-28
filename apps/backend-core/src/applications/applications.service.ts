@@ -2,6 +2,7 @@ import {
   Injectable,
   ConflictException,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import axios from 'axios';
@@ -160,24 +161,7 @@ export class ApplicationsService {
     if (status === AppStatus.INTERVIEW) {
       for (const id of applicationIds) {
         try {
-          // We are not calling this.updateStatus to avoid a second update
-          const application = await this.prisma.application.findUnique({
-            where: { id },
-            include: { candidate: true, job: true },
-          });
-          if (application) {
-            const invite = await this.interviewsService.createInvite(
-              application.id,
-            );
-            const bookingLink = `http://localhost:3000/book/${invite.bookingToken}`;
-
-            await this.emailService.sendInterviewInvite(
-              application.candidate.email,
-              application.candidate.firstName || 'Candidate',
-              application.job.title,
-              bookingLink,
-            );
-          }
+          await this.interviewsService.triggerInvite(id);
         } catch (error) {
           console.error(
             `Failed to trigger interview invite for app ${id}:`,
@@ -198,7 +182,7 @@ export class ApplicationsService {
       phone?: string;
       knockoutAnswers?: Record<string, any>; // <--- NEW INPUT
     },
-    filePath: string,
+    files: { resume: string; coverLetter?: string },
   ) {
     // 1. Fetch Job to check for Screening Template & Knock-out Questions
     const job = await this.prisma.job.findUnique({
@@ -304,7 +288,7 @@ export class ApplicationsService {
         data: {
           firstName: data.name.split(' ')[0],
           lastName: data.name.split(' ')[1] || '',
-          resumeS3Key: filePath,
+          resumeS3Key: files.resume,
           lastActiveAt: new Date(),
           // We do NOT update email if it was a fuzzy match, to preserve the original email.
           // But if it was an exact match, email is same anyway.
@@ -317,7 +301,7 @@ export class ApplicationsService {
           phone: data.phone,
           firstName: data.name.split(' ')[0],
           lastName: data.name.split(' ')[1] || '',
-          resumeS3Key: filePath,
+          resumeS3Key: files.resume,
           lastActiveAt: new Date(),
         },
       });
@@ -340,13 +324,14 @@ export class ApplicationsService {
         status: initialStatus,
         knockoutAnswers: data.knockoutAnswers || {},
         isAutoRejected: isAutoRejected,
+        coverLetterS3Key: files.coverLetter,
       },
     });
 
     // 5. Add to Queue for AI Processing
     await this.applicationsQueue.add('process-application', {
       applicationId: newApplication.id,
-      filePath,
+      filePath: files.resume,
       jobId: data.jobId,
     });
 
@@ -408,7 +393,16 @@ export class ApplicationsService {
         where: whereClause,
         skip: skip,
         take: limit,
-        include: { job: true, candidate: true },
+        include: {
+          job: true,
+          candidate: {
+            include: {
+              _count: {
+                select: { applications: true },
+              },
+            },
+          },
+        },
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.application.count({ where: whereClause }),
@@ -427,7 +421,16 @@ export class ApplicationsService {
     const application = await this.prisma.application.findUnique({
       where: { id },
       include: {
-        candidate: true,
+        candidate: {
+          include: {
+            applications: {
+              include: {
+                job: { select: { id: true, title: true } },
+              },
+              orderBy: { createdAt: 'desc' },
+            },
+          },
+        },
         job: {
           include: {
             screeningTemplate: true,
@@ -462,17 +465,7 @@ export class ApplicationsService {
         `🚀 Status changed to INTERVIEW. Triggering SmartScheduler...`,
       );
       try {
-        const invite = await this.interviewsService.createInvite(
-          application.id,
-        );
-        const bookingLink = `http://localhost:3000/book/${invite.bookingToken}`;
-
-        await this.emailService.sendInterviewInvite(
-          application.candidate.email,
-          application.candidate.firstName || 'Candidate',
-          application.job.title,
-          bookingLink,
-        );
+        await this.interviewsService.triggerInvite(application.id);
       } catch (error) {
         console.error('❌ Failed to process interview invite:', error);
       }
@@ -525,5 +518,50 @@ export class ApplicationsService {
     );
 
     return app;
+  }
+
+  async reprocessApplication(id: string) {
+    const app = await this.prisma.application.findUnique({
+      where: { id },
+      include: { candidate: true },
+    });
+
+    if (!app) throw new NotFoundException('Application not found');
+
+    // Ensure we have a resume path/url
+    const filePath = app.candidate.resumeS3Key;
+    if (!filePath)
+      throw new BadRequestException('Candidate has no resume URL/Path');
+
+    await this.applicationsQueue.add('process-application', {
+      applicationId: app.id,
+      filePath: filePath,
+      jobId: app.jobId,
+    });
+
+    return {
+      message: 'Re-processing queued successfully',
+      candidate: app.candidate.email,
+      file: filePath,
+    };
+  }
+
+  async findByIds(ids: string[]) {
+    return this.prisma.application.findMany({
+      where: {
+        id: { in: ids },
+      },
+      include: {
+        job: { select: { id: true, title: true } },
+        candidate: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+    });
   }
 }

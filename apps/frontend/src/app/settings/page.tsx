@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
+import QuestionTemplatesPage from './templates/questions/page';
 
 // --- Helper Icons & Components ---
 const LogoLinkedIn = () => <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z" /></svg>;
@@ -40,7 +41,7 @@ interface Company {
 }
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<'GENERAL' | 'JOB_TEMPLATES' | 'OFFER_TEMPLATES' | 'SCREENING' | 'INTEGRATIONS'>('GENERAL');
+  const [activeTab, setActiveTab] = useState<'GENERAL' | 'JOB_TEMPLATES' | 'OFFER_TEMPLATES' | 'SCREENING' | 'INTEGRATIONS' | 'QUESTION_TEMPLATES'>('GENERAL');
   const [jobTemplates, setJobTemplates] = useState<JobTemplate[]>([]);
   const [offerTemplates, setOfferTemplates] = useState<OfferTemplate[]>([]);
   const [screenTemplates, setScreenTemplates] = useState<ScreeningTemplate[]>([]);
@@ -195,7 +196,7 @@ export default function SettingsPage() {
     }
   };
 
-  const renderTabNav = (id: 'GENERAL' | 'JOB_TEMPLATES' | 'OFFER_TEMPLATES' | 'SCREENING' | 'INTEGRATIONS', label: string) => (
+  const renderTabNav = (id: 'GENERAL' | 'JOB_TEMPLATES' | 'OFFER_TEMPLATES' | 'SCREENING' | 'INTEGRATIONS' | 'QUESTION_TEMPLATES', label: string) => (
     <button onClick={() => setActiveTab(id)} className={`px-4 py-2.5 text-sm font-semibold rounded-md transition-colors ${activeTab === id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:bg-gray-200/50 hover:text-gray-900'}`}>
       {label}
     </button>
@@ -217,6 +218,7 @@ export default function SettingsPage() {
             {renderTabNav('JOB_TEMPLATES', 'Job Templates')}
             {renderTabNav('OFFER_TEMPLATES', 'Offer Templates')}
             {renderTabNav('SCREENING', 'Scorecards')}
+            {renderTabNav('QUESTION_TEMPLATES', 'Question Templates')}
             {renderTabNav('INTEGRATIONS', 'Integrations')}
           </nav>
 
@@ -227,6 +229,7 @@ export default function SettingsPage() {
               {renderTabNav('JOB_TEMPLATES', 'Jobs')}
               {renderTabNav('OFFER_TEMPLATES', 'Offers')}
               {renderTabNav('SCREENING', 'Scores')}
+              {renderTabNav('QUESTION_TEMPLATES', 'Questions')}
               {renderTabNav('INTEGRATIONS', 'Apps')}
             </div>
           </div>
@@ -499,6 +502,13 @@ export default function SettingsPage() {
                       ))}
                       {screenTemplates.length === 0 && <p className="p-4 text-gray-400 italic text-sm">No scorecards found.</p>}
                     </div>
+                  </div>
+                )}
+
+                {activeTab === 'QUESTION_TEMPLATES' && (
+                  <div className="-m-6 sm:-m-8">
+                    {/* Negative margin to counteract the padding of main, since QuestionTemplatesPage has its own padding */}
+                    <QuestionTemplatesPage />
                   </div>
                 )}
 

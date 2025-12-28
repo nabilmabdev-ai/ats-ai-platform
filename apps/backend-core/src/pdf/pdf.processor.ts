@@ -7,6 +7,7 @@ import * as fsPromises from 'fs/promises';
 import { createWriteStream } from 'fs';
 import { pipeline } from 'stream/promises';
 import { TDocumentDefinitions } from 'pdfmake/interfaces';
+import { OfferStatus } from '@prisma/client';
 
 @Processor('pdf')
 export class PdfProcessor extends WorkerHost {
@@ -22,18 +23,27 @@ export class PdfProcessor extends WorkerHost {
   ) {
     if (job.name === 'generate-pdf') {
       const { offerId, docDefinition } = job.data;
-      const pdfStream = this.pdfService.generatePdf(docDefinition);
-      const pdfDir = path.join(process.cwd(), 'uploads', 'generated-offers');
-      await fsPromises.mkdir(pdfDir, { recursive: true });
-      const relativePdfPath = `/generated-offers/${offerId}.pdf`;
-      const fullPdfPath = path.join(pdfDir, `${offerId}.pdf`);
+      try {
+        const pdfStream = this.pdfService.generatePdf(docDefinition);
+        const pdfDir = path.join(process.cwd(), 'uploads', 'generated-offers');
+        await fsPromises.mkdir(pdfDir, { recursive: true });
+        const relativePdfPath = `/generated-offers/${offerId}.pdf`;
+        const fullPdfPath = path.join(pdfDir, `${offerId}.pdf`);
 
-      await pipeline(pdfStream, createWriteStream(fullPdfPath));
+        await pipeline(pdfStream, createWriteStream(fullPdfPath));
 
-      await this.prisma.offer.update({
-        where: { id: offerId },
-        data: { generatedOfferUrl: relativePdfPath },
-      });
+        await this.prisma.offer.update({
+          where: { id: offerId },
+          data: { generatedOfferUrl: relativePdfPath },
+        });
+      } catch (error) {
+        console.error(`❌ Failed to generate PDF for offer ${offerId}:`, error);
+        await this.prisma.offer.update({
+          where: { id: offerId },
+          data: { status: OfferStatus.FAILED },
+        });
+        throw error; // Rethrow to let BullMQ retry or mark failed
+      }
     }
   }
 }

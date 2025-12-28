@@ -20,6 +20,9 @@ import { UploadsModule } from './uploads/uploads.module';
 import { CompanyModule } from './company/company.module';
 import { SearchModule } from './search/search.module';
 
+import { QuestionTemplatesModule } from './question-templates/question-templates.module';
+import { CsvImportModule } from './csv-import/csv-import.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -42,6 +45,8 @@ import { SearchModule } from './search/search.module';
     UploadsModule,
     CompanyModule,
     SearchModule,
+    QuestionTemplatesModule,
+    CsvImportModule,
     BullModule.forRoot({
       connection: {
         host: process.env.REDIS_HOST || 'localhost',
@@ -52,4 +57,4 @@ import { SearchModule } from './search/search.module';
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule { }
+export class AppModule {}

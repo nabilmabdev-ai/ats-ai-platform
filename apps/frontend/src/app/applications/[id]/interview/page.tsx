@@ -5,6 +5,14 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import StarRating from '@/app/components/StarRating';
 import { ArrowLeftIcon } from '@/components/ui/Icons';
+import { useToast } from '@/components/ui/Toast';
+import { QuestionTemplate } from '@/types/question-template';
+import { useAutoSave } from '@/hooks/useAutoSave';
+
+// --- Helper: Robust ID Generator ---
+const generateId = () => {
+  return Date.now().toString(36) + Math.random().toString(36).substr(2);
+};
 
 // --- Helper Icons ---
 const CheckIcon = () => (
@@ -44,16 +52,97 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
   const router = useRouter();
   const resolvedParams = use(params);
   const appId = resolvedParams.id;
+  const { addToast } = useToast();
 
   const [app, setApp] = useState<Application | null>(null);
+
   // Questions State
-  const [questions, setQuestions] = useState<any | null>(null);
+  interface Question {
+    id: string;
+    text: string;
+    category: string;
+  }
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [manualEntry, setManualEntry] = useState('');
   const [isGeneratingQuestions, setIsGeneratingQuestions] = useState(false);
+  const [isSavingQuestions, setIsSavingQuestions] = useState(false);
   const [activeTab, setActiveTab] = useState<'NOTES' | 'SCORECARD' | 'QUESTIONS'>('NOTES');
+  const [activeInterviewId, setActiveInterviewId] = useState<string | null>(null);
+
+  // Template State
+  const [availableTemplates, setAvailableTemplates] = useState<QuestionTemplate[]>([]);
+  const [templateSearch, setTemplateSearch] = useState('');
+  const [isTemplateDropdownOpen, setIsTemplateDropdownOpen] = useState(false);
+
+  // Fetch templates
+  useEffect(() => {
+    fetch(`${API_URL}/templates/questions`)
+      .then(res => res.json())
+      .then(data => setAvailableTemplates(data))
+      .catch(err => console.error('Failed to load templates', err));
+  }, []);
+
+  const handleLoadTemplate = (template: QuestionTemplate) => {
+    // Append questions, avoiding duplicates if possible (simple check by text)
+    const existingTexts = new Set(questions.map(q => q.text));
+    const newQuestions = template.questions.filter(q => !existingTexts.has(q.text)).map(q => ({
+      ...q,
+      id: generateId() // Regenerate ID to avoid conflicts
+    }));
+
+    setQuestions(prev => [...prev, ...newQuestions]);
+    setTemplateSearch('');
+    setIsTemplateDropdownOpen(false);
+    addToast(`Loaded ${newQuestions.length} questions from "${template.title}"`, 'success');
+  };
+
+  const handleSaveAsTemplate = async () => {
+    if (questions.length === 0) {
+      addToast('No questions to save!', 'warning');
+      return;
+    }
+
+    const title = prompt('Enter a name for this new template:', `${app?.job.title} - Custom Script`);
+    if (!title) return;
+
+    try {
+      const res = await fetch(`${API_URL}/templates/questions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          questions,
+          createdById: 'system-user', // TODO: Replace with actual user
+        }),
+      });
+
+      if (res.ok) {
+        addToast('Template saved successfully!', 'success');
+        // Refresh templates
+        fetch(`${API_URL}/templates/questions`)
+          .then(res => res.json())
+          .then(data => setAvailableTemplates(data));
+      } else {
+        addToast('Failed to save template', 'error');
+      }
+    } catch (error) {
+      console.error(error);
+      addToast('Error saving template', 'error');
+    }
+  };
 
   // AI Notes State
   const [notes, setNotes] = useState('');
   const [isProcessingAi, setIsProcessingAi] = useState(false);
+
+  const { isSaving } = useAutoSave(notes, async (currentNotes) => {
+    if (!activeInterviewId) return;
+    await fetch(`${API_URL}/interviews/${activeInterviewId}/notes`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notes: currentNotes })
+    });
+  });
 
   // Human Scorecard State
   const [ratings, setRatings] = useState<Record<string, number>>({});
@@ -79,6 +168,29 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
         initialRatings['Communication'] = 0;
         initialRatings['Cultural Fit'] = 0;
         setRatings(initialRatings);
+
+        // Load existing questions if any
+        // We need to fetch the interview object to get the questions
+        fetch(`${API_URL}/interviews/application/${appId}`)
+          .then(res => res.json())
+          .then(interviews => {
+            if (interviews && interviews.length > 0) {
+              const interview = interviews[0];
+              setActiveInterviewId(interview.id);
+              if (interview.questions) {
+                setQuestions(interview.questions);
+              }
+              if (interview.humanNotes) {
+                setNotes(interview.humanNotes);
+              }
+              if (interview.scorecard) {
+                // Load AI scorecard if exists
+                if (interview.scorecardType === 'AI') {
+                  setAiScorecard(interview.scorecard);
+                }
+              }
+            }
+          });
       })
       .catch((err) => console.error("Failed to load app context", err));
   }, [appId]);
@@ -100,16 +212,75 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
       });
       if (res.ok) {
         const data = await res.json();
-        setQuestions(data);
+        // Transform and append
+        const newQuestions: Question[] = [];
+        if (data.role_specific) data.role_specific.forEach((q: string) => newQuestions.push({ id: generateId(), text: q, category: 'Role Specific' }));
+        if (data.behavioral) data.behavioral.forEach((q: string) => newQuestions.push({ id: generateId(), text: q, category: 'Behavioral' }));
+        if (data.red_flags) data.red_flags.forEach((q: string) => newQuestions.push({ id: generateId(), text: q, category: 'Red Flags' }));
+
+        setQuestions(prev => [...prev, ...newQuestions]);
+        addToast('Questions generated successfully!', 'success');
       } else {
         console.error("Failed to generate questions", res.status, res.statusText);
-        alert("Failed to generate questions. Please check the console.");
+        addToast("Failed to generate questions.", 'error');
       }
     } catch (err) {
       console.error(err);
-      alert("Error generating questions. Is the backend running?");
+      addToast("Error generating questions. Is the backend running?", 'error');
     } finally {
       setIsGeneratingQuestions(false);
+    }
+  };
+
+  const handleManualAdd = () => {
+    if (!manualEntry.trim()) return;
+    const newQ: Question = {
+      id: generateId(),
+      text: manualEntry,
+      category: 'Manual'
+    };
+    setQuestions(prev => [newQ, ...prev]);
+    setManualEntry('');
+  };
+
+  const handleDeleteQuestion = (id: string) => {
+    setQuestions(prev => prev.filter(q => q.id !== id));
+  };
+
+  const handleEditQuestion = (id: string, newText: string) => {
+    setQuestions(prev => prev.map(q => q.id === id ? { ...q, text: newText } : q));
+  };
+
+  const handleSaveQuestions = async () => {
+    try {
+      setIsSavingQuestions(true);
+      const interviewsRes = await fetch(`${API_URL}/interviews/application/${appId}`);
+      const interviews = await interviewsRes.json();
+      const interviewId = interviews[0]?.id;
+
+      if (!interviewId) {
+        addToast("No active interview session found. Please schedule one first.", 'warning');
+        return;
+      }
+
+      const res = await fetch(`${API_URL}/interviews/questions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          interviewId,
+          questions
+        }),
+      });
+
+      if (res.ok) {
+        addToast('Questions List Saved! 💾', 'success');
+      } else {
+        addToast('Failed to save questions.', 'error');
+      }
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsSavingQuestions(false);
     }
   };
 
@@ -144,7 +315,7 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
       const interviewId = interviews[0]?.id;
 
       if (!interviewId) {
-        alert("No active interview session found. Please schedule one first.");
+        addToast("No active interview session found. Please schedule one first.", 'warning');
         return;
       }
 
@@ -158,10 +329,10 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
       });
 
       if (res.ok) {
-        alert('AI Scorecard Saved Successfully! 💾');
+        addToast('AI Scorecard Saved Successfully! 💾', 'success');
         router.push('/dashboard');
       } else {
-        alert('Failed to save AI scorecard.');
+        addToast('Failed to save AI scorecard.', 'error');
       }
     } catch (error) {
       console.error(error);
@@ -179,7 +350,7 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
       const interviewId = interviews[0]?.id;
 
       if (!interviewId) {
-        alert("No active interview session found. Please schedule one first.");
+        addToast("No active interview session found. Please schedule one first.", 'warning');
         return;
       }
 
@@ -194,10 +365,10 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
       });
 
       if (res.ok) {
-        alert('Scorecard Saved Successfully! 💾');
+        addToast('Scorecard Saved Successfully! 💾', 'success');
         router.push('/dashboard');
       } else {
-        alert('Failed to save scorecard.');
+        addToast('Failed to save scorecard.', 'error');
       }
     } catch (error) {
       console.error(error);
@@ -310,96 +481,91 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
 
           <div className="bg-white rounded-[var(--radius-xl)] border border-[var(--color-border-subtle)] shadow-sm min-h-[500px] overflow-hidden relative">
 
-            {/* TAB 1: AI NOTES */}
+            {/* TAB 1: AI NOTES (Split View) */}
             {activeTab === 'NOTES' && (
-              <div className="flex flex-col h-full animate-fade-in">
-                <div className="p-6 border-b border-[var(--color-border-subtle)] flex justify-between items-center bg-[var(--color-neutral-50)]/50">
-                  <div>
-                    <h2 className="text-lg font-bold text-[var(--color-text-dark)]">Interview Notes</h2>
-                    <p className="text-xs text-[var(--color-text-soft)]">Jot down thoughts. AI will summarize them.</p>
-                  </div>
-                  <button
-                    onClick={handleAiSubmit}
-                    disabled={isProcessingAi || !notes}
-                    className="btn-primary flex items-center gap-2 px-4 py-2 text-sm"
-                  >
-                    {isProcessingAi ? (
-                      <><span className="animate-spin">✨</span> Analyzing...</>
-                    ) : (
-                      <><span className="text-lg">✨</span> Generate Analysis</>
-                    )}
-                  </button>
-                </div>
+              <div className="flex h-full overflow-hidden">
 
-                <div className="flex-1 flex flex-col">
-                  {/* Toolbar */}
-                  <div className="flex items-center gap-4 px-6 py-2 border-b border-[var(--color-border-subtle)] bg-white">
-                    <button className="text-[var(--color-text-soft)] hover:text-[var(--color-primary)] font-bold text-sm">B</button>
-                    <button className="text-[var(--color-text-soft)] hover:text-[var(--color-primary)] italic font-serif text-sm">I</button>
-                    <button className="text-[var(--color-text-soft)] hover:text-[var(--color-primary)] underline text-sm">U</button>
+                {/* LEFT: Human Notes (Input) */}
+                <div className={`flex flex-col border-r border-[var(--color-border)] transition-all duration-300 ${aiScorecard ? 'w-1/2' : 'w-full'}`}>
+                  <div className="p-4 border-b border-[var(--color-border-subtle)] flex justify-between items-center bg-gray-50">
+                    <div className="flex items-center gap-2">
+                      <h2 className="font-bold text-[var(--color-text-dark)]">My Notes</h2>
+                      {isSaving ? (
+                        <span className="text-xs text-[var(--color-text-soft)] animate-pulse">Saving...</span>
+                      ) : (
+                        <span className="text-xs text-[var(--color-success-text)]">Saved</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {/* Toolbar */}
+                      <div className="flex items-center gap-2 mr-4">
+                        <button className="text-[var(--color-text-soft)] hover:text-[var(--color-primary)] font-bold text-sm">B</button>
+                        <button className="text-[var(--color-text-soft)] hover:text-[var(--color-primary)] italic font-serif text-sm">I</button>
+                        <button className="text-[var(--color-text-soft)] hover:text-[var(--color-primary)] underline text-sm">U</button>
+                      </div>
+                      <button
+                        onClick={handleAiSubmit}
+                        disabled={isProcessingAi || !notes}
+                        className="btn-primary text-xs px-3 py-1.5 flex items-center gap-2"
+                      >
+                        {isProcessingAi ? 'Analyzing...' : 'Run AI Analysis →'}
+                      </button>
+                    </div>
                   </div>
                   <textarea
-                    className="flex-1 w-full p-6 outline-none text-sm text-[var(--color-text-dark)] resize-none bg-transparent placeholder:text-[var(--color-neutral-300)] leading-relaxed"
-                    placeholder="- Candidate demonstrated strong knowledge in..."
+                    className="flex-1 w-full p-6 outline-none text-sm text-[var(--color-text-dark)] resize-none bg-white leading-relaxed"
+                    placeholder="Type interview notes here... (Auto-saved)"
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                   />
                 </div>
 
-                {/* AI Result Overlay/Modal */}
+                {/* RIGHT: AI Copilot (Output) - Only visible when data exists */}
                 {aiScorecard && (
-                  <div className="absolute inset-0 z-10 bg-white/95 backdrop-blur-sm p-8 overflow-y-auto animate-fade-in">
-                    <div className="max-w-2xl mx-auto space-y-6">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-xl font-bold text-[var(--color-text-dark)] flex items-center gap-2">
-                          <span className="text-2xl">🤖</span> AI Analysis
-                        </h3>
-                        <button onClick={() => setAiScorecard(null)} className="text-[var(--color-text-soft)] hover:text-[var(--color-text-dark)]">
-                          Close
-                        </button>
+                  <div className="w-1/2 flex flex-col bg-[var(--color-neutral-50)] animate-in slide-in-from-right-10 duration-300">
+                    <div className="p-4 border-b border-[var(--color-border-subtle)] flex justify-between items-center bg-white">
+                      <h2 className="font-bold text-[var(--color-primary)] flex items-center gap-2">
+                        <span className="text-lg">✨</span> AI Insights
+                      </h2>
+                      <button onClick={() => setAiScorecard(null)} className="text-xs text-[var(--color-text-soft)] hover:text-[var(--color-text-dark)]">Close</button>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-6 space-y-6">
+
+                      {/* Summary Block */}
+                      <div className="bg-white p-4 rounded-lg border border-[var(--color-border)] shadow-sm">
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--color-text-soft)] mb-2">Executive Summary</h4>
+                        <p className="text-sm leading-relaxed">{aiScorecard.summary}</p>
                       </div>
 
-                      <div className="bg-[var(--color-neutral-50)] p-6 rounded-[var(--radius-lg)] border border-[var(--color-border)]">
-                        <h4 className="font-bold text-[var(--color-text-dark)] mb-2">Summary</h4>
-                        <p className="text-sm text-[var(--color-text-soft)] leading-relaxed">{aiScorecard.summary}</p>
+                      {/* Pros/Cons */}
+                      <div className="space-y-3">
+                        {aiScorecard.pros?.map((pro, i) => (
+                          <div key={`pro-${i}`} className="flex gap-2 text-sm text-[var(--color-text-dark)]">
+                            <CheckIcon />
+                            <span>{pro}</span>
+                          </div>
+                        ))}
+                        {aiScorecard.cons?.map((con, i) => (
+                          <div key={`con-${i}`} className="flex gap-2 text-sm text-[var(--color-text-dark)]">
+                            <AlertIcon />
+                            <span>{con}</span>
+                          </div>
+                        ))}
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="bg-[var(--color-success)]/5 p-5 rounded-[var(--radius-lg)] border border-[var(--color-success)]/10">
-                          <h4 className="font-bold text-[var(--color-success-text)] mb-3 flex items-center gap-2 text-sm"><CheckIcon /> Pros</h4>
-                          <ul className="space-y-2">
-                            {aiScorecard.pros?.map((pro, i) => (
-                              <li key={i} className="text-xs text-[var(--color-text-dark)] flex items-start gap-2">
-                                <span className="w-1 h-1 rounded-full bg-[var(--color-success-text)] mt-1.5"></span>
-                                {pro}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                        <div className="bg-[var(--color-warning)]/5 p-5 rounded-[var(--radius-lg)] border border-[var(--color-warning)]/10">
-                          <h4 className="font-bold text-[var(--color-warning-text)] mb-3 flex items-center gap-2 text-sm"><AlertIcon /> Cons</h4>
-                          <ul className="space-y-2">
-                            {aiScorecard.cons?.map((con, i) => (
-                              <li key={i} className="text-xs text-[var(--color-text-dark)] flex items-start gap-2">
-                                <span className="w-1 h-1 rounded-full bg-[var(--color-warning-text)] mt-1.5"></span>
-                                {con}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between pt-6 border-t border-[var(--color-border)]">
-                        <div className="flex items-center gap-4">
-                          <span className="text-sm font-bold text-[var(--color-text-soft)]">AI Rating</span>
+                      {/* Rating & Save */}
+                      <div className="pt-4 border-t border-[var(--color-border)]">
+                        <div className="flex justify-between items-center mb-4">
+                          <span className="font-bold text-sm">Suggested Rating</span>
                           <StarRating label="" value={aiScorecard.rating} readOnly />
                         </div>
                         <button
                           onClick={handleSaveAiScorecard}
                           disabled={isSavingAiScorecard}
-                          className="btn-primary px-6 py-2 text-sm"
+                          className="w-full btn-secondary text-sm"
                         >
-                          {isSavingAiScorecard ? 'Saving...' : 'Save to Profile'}
+                          {isSavingAiScorecard ? 'Saving...' : 'Apply to Scorecard'}
                         </button>
                       </div>
                     </div>
@@ -451,76 +617,156 @@ export default function InterviewPage({ params }: { params: Promise<{ id: string
             {/* TAB 3: QUESTIONS */}
             {activeTab === 'QUESTIONS' && (
               <div className="flex flex-col h-full animate-fade-in">
-                <div className="p-6 border-b border-[var(--color-border-subtle)] flex justify-between items-center bg-[var(--color-neutral-50)]/50">
-                  <div>
-                    <h2 className="text-lg font-bold text-[var(--color-text-dark)]">Suggested Questions</h2>
-                    <p className="text-xs text-[var(--color-text-soft)]">Tailored to the role and candidate profile.</p>
+                <div className="p-6 border-b border-[var(--color-border-subtle)] flex flex-col gap-4 bg-[var(--color-neutral-50)]/50">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h2 className="text-lg font-bold text-[var(--color-text-dark)]">Interview Questions</h2>
+                      <p className="text-xs text-[var(--color-text-soft)]">Curate your list. Mix manual entry with AI suggestions.</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleGenerateQuestions}
+                        disabled={isGeneratingQuestions}
+                        className="btn-secondary flex items-center gap-2 px-4 py-2 text-sm bg-white border border-[var(--color-border)] hover:bg-[var(--color-neutral-50)]"
+                      >
+                        {isGeneratingQuestions ? (
+                          <><span className="animate-spin">✨</span> Generating...</>
+                        ) : (
+                          <><span className="text-lg">✨</span> AI Suggestions</>
+                        )}
+                      </button>
+                      <button
+                        onClick={handleSaveQuestions}
+                        disabled={isSavingQuestions}
+                        className="btn-primary flex items-center gap-2 px-4 py-2 text-sm"
+                      >
+                        {isSavingQuestions ? 'Saving...' : 'Save List'}
+                      </button>
+                      <button
+                        onClick={handleSaveAsTemplate}
+                        className="p-2 text-[var(--color-text-soft)] hover:text-[var(--color-primary)] hover:bg-[var(--color-neutral-100)] rounded-md transition-colors"
+                        title="Save as Template"
+                      >
+                        💾
+                      </button>
+                    </div>
                   </div>
-                  <button
-                    onClick={handleGenerateQuestions}
-                    disabled={isGeneratingQuestions}
-                    className="btn-primary flex items-center gap-2 px-4 py-2 text-sm"
-                  >
-                    {isGeneratingQuestions ? (
-                      <><span className="animate-spin">✨</span> Generating...</>
-                    ) : (
-                      <><span className="text-lg">✨</span> Generate New</>
-                    )}
-                  </button>
+
+                  {/* Template Search & Manual Entry */}
+                  <div className="flex flex-col gap-3">
+                    {/* Template Search */}
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="Search templates to load..."
+                        className="w-full px-4 py-2 rounded-[var(--radius-md)] border border-[var(--color-border)] focus:ring-2 focus:ring-[var(--color-primary)]/20 outline-none text-sm pl-9"
+                        value={templateSearch}
+                        onChange={(e) => setTemplateSearch(e.target.value)}
+                        onFocus={() => setIsTemplateDropdownOpen(true)}
+                        onBlur={() => setTimeout(() => setIsTemplateDropdownOpen(false), 200)}
+                      />
+                      <span className="absolute left-3 top-2.5 text-[var(--color-text-soft)]">🔍</span>
+
+                      {isTemplateDropdownOpen && availableTemplates.length > 0 && (
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-[var(--color-border)] rounded-[var(--radius-md)] shadow-lg z-20 max-h-60 overflow-y-auto">
+                          {availableTemplates
+                            .filter(t => t.title.toLowerCase().includes(templateSearch.toLowerCase()))
+                            .map(t => (
+                              <button
+                                key={t.id}
+                                className="w-full text-left px-4 py-2 hover:bg-[var(--color-neutral-50)] text-sm flex justify-between items-center group"
+                                onClick={() => handleLoadTemplate(t)}
+                              >
+                                <span className="font-medium text-[var(--color-text-dark)]">{t.title}</span>
+                                <span className="text-xs text-[var(--color-text-soft)]">{t.questions.length} Qs</span>
+
+                                {/* Preview Tooltip (Simple implementation) */}
+                                <div className="hidden group-hover:block absolute left-full ml-2 top-0 w-64 bg-white border border-[var(--color-border)] p-3 rounded-[var(--radius-md)] shadow-xl">
+                                  <p className="text-xs font-bold mb-2 text-[var(--color-text-soft)]">Preview:</p>
+                                  <ul className="space-y-1">
+                                    {t.questions.slice(0, 3).map((q, i) => (
+                                      <li key={i} className="text-xs text-[var(--color-text-dark)] truncate">• {q.text}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              </button>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Manual Entry */}
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        className="flex-1 px-4 py-2 rounded-[var(--radius-md)] border border-[var(--color-border)] focus:ring-2 focus:ring-[var(--color-primary)]/20 outline-none text-sm"
+                        placeholder="Type a custom question here and press Enter..."
+                        value={manualEntry}
+                        onChange={(e) => setManualEntry(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleManualAdd()}
+                      />
+                      <button
+                        onClick={handleManualAdd}
+                        disabled={!manualEntry.trim()}
+                        className="px-4 py-2 bg-[var(--color-text-dark)] text-white rounded-[var(--radius-md)] text-sm font-bold hover:bg-black disabled:opacity-50"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="p-8 overflow-y-auto space-y-6">
-                  {questions ? (
-                    <>
-                      {/* Role Specific */}
-                      <div className="bg-white rounded-[var(--radius-lg)] border border-[var(--color-border)] overflow-hidden">
-                        <div className="bg-blue-50/50 px-6 py-3 border-b border-blue-100">
-                          <h3 className="font-bold text-blue-700 text-sm flex items-center gap-2">🛠️ Role-Specific</h3>
+                <div className="p-8 overflow-y-auto space-y-4 flex-1">
+                  {questions.length > 0 ? (
+                    questions.map((q, i) => (
+                      <div key={q.id} className="group bg-white rounded-[var(--radius-lg)] border border-[var(--color-border)] p-4 hover:shadow-sm transition-all flex gap-4 items-start">
+                        <span className="font-mono text-[var(--color-text-soft)] text-sm font-bold mt-2.5">
+                          {i + 1}.
+                        </span>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className={`
+                              text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full
+                              ${q.category === 'Role Specific' ? 'bg-blue-50 text-blue-600' : ''}
+                              ${q.category === 'Behavioral' ? 'bg-purple-50 text-purple-600' : ''}
+                              ${q.category === 'Red Flags' ? 'bg-red-50 text-red-600' : ''}
+                              ${q.category === 'Manual' ? 'bg-gray-100 text-gray-600' : ''}
+                            `}>
+                              {q.category}
+                            </span>
+                            <button
+                              onClick={() => handleDeleteQuestion(q.id)}
+                              className="text-[var(--color-text-soft)] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                              title="Delete Question"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                                <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+                              </svg>
+                            </button>
+                          </div>
+                          <textarea
+                            className="w-full text-sm text-[var(--color-text-dark)] bg-transparent border-none focus:ring-0 p-0 resize-none leading-relaxed overflow-hidden"
+                            value={q.text}
+                            onChange={(e) => {
+                              handleEditQuestion(q.id, e.target.value);
+                              e.target.style.height = 'auto';
+                              e.target.style.height = e.target.scrollHeight + 'px';
+                            }}
+                            ref={(el) => {
+                              if (el) {
+                                el.style.height = 'auto';
+                                el.style.height = el.scrollHeight + 'px';
+                              }
+                            }}
+                            rows={1}
+                          />
                         </div>
-                        <ul className="p-6 space-y-4">
-                          {questions.role_specific?.map((q: string, i: number) => (
-                            <li key={i} className="flex gap-4 text-sm text-[var(--color-text-dark)]">
-                              <span className="font-mono text-blue-300 font-bold">{i + 1}.</span>
-                              <span className="leading-relaxed">{q}</span>
-                            </li>
-                          ))}
-                        </ul>
                       </div>
-
-                      {/* Behavioral */}
-                      <div className="bg-white rounded-[var(--radius-lg)] border border-[var(--color-border)] overflow-hidden">
-                        <div className="bg-purple-50/50 px-6 py-3 border-b border-purple-100">
-                          <h3 className="font-bold text-purple-700 text-sm flex items-center gap-2">🧠 Behavioral (STAR)</h3>
-                        </div>
-                        <ul className="p-6 space-y-4">
-                          {questions.behavioral?.map((q: string, i: number) => (
-                            <li key={i} className="flex gap-4 text-sm text-[var(--color-text-dark)]">
-                              <span className="font-mono text-purple-300 font-bold">{i + 1}.</span>
-                              <span className="leading-relaxed">{q}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      {/* Red Flags */}
-                      <div className="bg-white rounded-[var(--radius-lg)] border border-[var(--color-border)] overflow-hidden">
-                        <div className="bg-red-50/50 px-6 py-3 border-b border-red-100">
-                          <h3 className="font-bold text-red-700 text-sm flex items-center gap-2">🚩 Red Flag Detectors</h3>
-                        </div>
-                        <ul className="p-6 space-y-4">
-                          {questions.red_flags?.map((q: string, i: number) => (
-                            <li key={i} className="flex gap-4 text-sm text-[var(--color-text-dark)]">
-                              <span className="font-mono text-red-300 font-bold">{i + 1}.</span>
-                              <span className="leading-relaxed">{q}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    </>
+                    ))
                   ) : (
                     <div className="flex flex-col items-center justify-center h-64 border-2 border-dashed border-[var(--color-border)] rounded-[var(--radius-lg)] bg-[var(--color-neutral-50)]/50">
-                      <span className="text-4xl mb-4 grayscale opacity-50">🤖</span>
-                      <p className="text-[var(--color-text-soft)] font-medium">Click "Generate New" to get started</p>
+                      <span className="text-4xl mb-4 grayscale opacity-50">✍️</span>
+                      <p className="text-[var(--color-text-soft)] font-medium">Start typing or generate questions</p>
                     </div>
                   )}
                 </div>

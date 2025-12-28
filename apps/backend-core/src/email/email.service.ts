@@ -188,4 +188,35 @@ END:VCALENDAR`;
     console.log(`📧 Offer Email Sent: ${nodemailer.getTestMessageUrl(info)}`);
     return info;
   }
+
+  // --- NEW METHOD: Parsing Error Notification ---
+  async sendParsingErrorEmail(to: string, name: string, jobTitle: string) {
+    if (!this.transporter) await this.initTransporter();
+
+    const info = await this.transporter.sendMail({
+      from: '"ATS Support Team" <support@ats-platform.com>',
+      to: to,
+      subject: `Action Required: Application for ${jobTitle}`,
+      text: `Hi ${name},\n\nWe encountered an issue processing your resume file. It appears to be corrupted or in an unsupported format.\n\nPlease re-apply with a standard PDF or DOCX file.\n\nBest regards,\nATS Support`,
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ffcccb; border-radius: 10px; background-color: #fff5f5;">
+          <h2 style="color: #c53030;">Application Issue ⚠️</h2>
+          <p>Hi ${name},</p>
+          <p>We received your application for <strong>${jobTitle}</strong>, but unfortunately, our system was unable to read your resume file.</p>
+          <p>This usually happens if the file is:</p>
+          <ul>
+            <li>Encrypted/Password protected</li>
+            <li>Corrupted</li>
+            <li>In an image-only format without text</li>
+          </ul>
+          <p style="font-weight: bold;">Please apply again with a standard PDF or DOCX file.</p>
+          <p><em>Note: Your previous attempt has been cleared to allow you to re-apply immediately.</em></p>
+        </div>
+      `,
+    });
+    console.log(
+      `📧 Parsing Error Email Sent: ${nodemailer.getTestMessageUrl(info)}`,
+    );
+    return info;
+  }
 }

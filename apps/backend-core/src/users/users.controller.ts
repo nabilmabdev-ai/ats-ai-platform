@@ -34,4 +34,9 @@ export class UsersController {
   updatePassword(@Param('id') id: string, @Body() body: { password: string }) {
     return this.usersService.updatePassword(id, body.password);
   }
+
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() body: any) {
+    return this.usersService.update(id, body);
+  }
 }

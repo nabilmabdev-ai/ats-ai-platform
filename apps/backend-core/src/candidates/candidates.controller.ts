@@ -17,10 +17,11 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { CandidatesService } from './candidates.service';
+import { Delete } from '@nestjs/common';
 
 @Controller('candidates')
 export class CandidatesController {
-  constructor(private readonly candidatesService: CandidatesService) { }
+  constructor(private readonly candidatesService: CandidatesService) {}
 
   @Get('search')
   async search(
@@ -57,8 +58,15 @@ export class CandidatesController {
     return this.candidatesService.update(id, body);
   }
 
+  @Delete(':id')
+  async remove(@Param('id') id: string) {
+    return this.candidatesService.remove(id);
+  }
+
   @Post('merge')
-  async merge(@Body() body: { primaryId: string; secondaryId: string; strategy?: any }) {
+  async merge(
+    @Body() body: { primaryId: string; secondaryId: string; strategy?: any },
+  ) {
     return this.candidatesService.mergeCandidates(
       body.primaryId,
       body.secondaryId,
