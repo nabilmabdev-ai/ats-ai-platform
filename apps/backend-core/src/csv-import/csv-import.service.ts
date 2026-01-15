@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import * as path from 'path';
+import { DeduplicationService } from '../deduplication/deduplication.service';
 
 @Injectable()
 export class CsvImportService {
@@ -16,6 +17,7 @@ export class CsvImportService {
     private prisma: PrismaService,
     @InjectQueue('applications') private applicationsQueue: Queue,
     private httpService: HttpService,
+    private deduplicationService: DeduplicationService,
   ) { }
 
   private async detectSeparator(filePath: string): Promise<string> {
@@ -94,6 +96,12 @@ export class CsvImportService {
         break;
       }
 
+      // DEMO LIMIT
+      if (processedCount >= 10) {
+        this.logger.warn(`Demo limit reached: stopped at 10 candidates.`);
+        break;
+      }
+
       try {
         const result = await this.processRow(row, batchId);
         if (!result.skipped) processedCount++;
@@ -142,10 +150,10 @@ export class CsvImportService {
     const email = row['email']?.trim();
     if (!email) return { skipped: true, updated: false };
 
-    const firstName = row['firstnamefirst']?.trim() || 'Unknown';
-    const lastName = row['lastnamelast']?.trim() || 'Candidate';
+    const firstName = row['firstnamefirst']?.trim() || row['firstname']?.trim() || 'Unknown';
+    const lastName = row['lastnamelast']?.trim() || row['lastname']?.trim() || 'Candidate';
     const phoneRaw =
-      row['numerodetelephoneinternational'] || row['telephone'] || '';
+      row['numerodetelephoneinternational'] || row['telephone'] || row['phone'] || '';
     const phone = phoneRaw.replace(/[^0-9+]/g, '');
     const jobTitle = this.extractJobTitle(row);
 
@@ -166,12 +174,20 @@ export class CsvImportService {
             priority: 'MEDIUM',
             remoteType: 'REMOTE',
             location: 'Morocco',
+            screeningTemplate: {
+              create: {
+                name: 'Default Import Screening',
+                requiredSkills: [],
+                niceToHaves: [],
+                scoringWeights: { skills: 40, experience: 30, education: 30 }
+              }
+            }
           },
         });
       }
     }
 
-    const resumeUrl = row['resumecv'];
+    const resumeUrl = row['resumecv'] || row['resume'] || row['cv'];
     const coverLetterUrl = row['addacoverletterorotherrelevantdocument'];
 
     let resumePath = '';
@@ -206,27 +222,77 @@ export class CsvImportService {
     const location =
       row['countrycity'] || row['dansquelpaysetesvoussitue'] || 'Morocco';
 
-    const candidate = await this.prisma.candidate.upsert({
-      where: { email },
-      update: {
+    // 1. Check Duplicates
+    const dedupResult = await this.deduplicationService.findMatch({
+      email,
+      phone,
+      name: `${firstName} ${lastName}`,
+    });
+
+    let candidate;
+
+    // Construct fallback resume text from CSV data if no file
+    let finalResumeText = '';
+    if (!resumePath) {
+      const parts = [
+        `Name: ${firstName} ${lastName}`,
+        `Email: ${email}`,
+        `Phone: ${phone}`,
+        `Location: ${location}`,
+        `Job Title: ${jobTitle}`
+      ];
+      // Add all other keys as key:value pairs for context
+      Object.keys(row).forEach(k => {
+        if (['firstname', 'lastname', 'email', 'phone', 'location', 'resumecv'].some(s => k.includes(s))) return;
+        if (row[k]) parts.push(`${k}: ${row[k]}`);
+      });
+      finalResumeText = parts.join('\n');
+    }
+
+    if (dedupResult.matchFound && dedupResult.candidateId) {
+      // UPDATE Existing
+      // If fuzzy match (not exact email), do NOT overwrite email.
+      const dataToUpdate: any = {
         firstName,
         lastName,
         phone,
-        ...(resumePath ? { resumeS3Key: resumePath } : {}),
         location,
         updatedAt: new Date(),
-        importBatchId: batchId // Link cand update to this batch (optional but useful)
-      },
-      create: {
-        email,
-        firstName,
-        lastName,
-        phone,
-        resumeS3Key: resumePath,
-        location,
-        importBatchId: batchId // Link cand creation to this batch
-      },
-    });
+        importBatchId: batchId
+      };
+
+      if (resumePath) dataToUpdate.resumeS3Key = resumePath;
+      // If we generated text and the existing candidate has no text, update it
+      // Don't overwrite existing parsed text with CSV dump usually, unless empty.
+      // But we can't easily check 'existing.resumeText' here efficiently without fetch.
+      // Let's only set it if we just created it or if we want to force update. 
+      // For safety, let's only update resumeText if we have a NEW resumePath, or if we are creating new. 
+      // Actually, if we are here, we might want to update it.
+
+      candidate = await this.prisma.candidate.update({
+        where: { id: dedupResult.candidateId },
+        data: dataToUpdate,
+      });
+
+      if (dedupResult.strategyUsed !== 'EMAIL') {
+        this.logger.log(`Merged CSV row (${firstName} ${lastName}) into existing candidate ${candidate.id} (Strategy: ${dedupResult.strategyUsed})`);
+      }
+
+    } else {
+      // CREATE New
+      candidate = await this.prisma.candidate.create({
+        data: {
+          email,
+          firstName,
+          lastName,
+          phone,
+          resumeS3Key: resumePath,
+          resumeText: resumePath ? undefined : finalResumeText, // Use synthesized text if no file
+          location,
+          importBatchId: batchId
+        }
+      });
+    }
 
     const existingApp = await this.prisma.application.findUnique({
       where: {
@@ -237,7 +303,7 @@ export class CsvImportService {
     // Define the job data to queue
     const queueJobData = {
       applicationId: existingApp ? existingApp.id : '', // will be set below
-      filePath: resumePath,
+      filePath: resumePath || '', // Pass empty string if no file, Processor now handles this
       jobId: job.id,
     };
 
@@ -253,8 +319,9 @@ export class CsvImportService {
         },
       });
 
-      // [FIX] ALWAYS trigger AI processing on re-import if resume exists
-      if (resumePath) {
+      // [FIX] Trigger AI processing if resume exists OR if we have synthesized text (which we always do for new imports without file)
+      // Since we can't easily know if existingApp had text, we'll queue it if we have resumePath OR if we synthesized text.
+      if (resumePath || finalResumeText) {
         await this.applicationsQueue.add('process-application', queueJobData);
       }
 
@@ -273,9 +340,9 @@ export class CsvImportService {
       });
       queueJobData.applicationId = newApp.id;
 
-      if (resumePath) {
-        await this.applicationsQueue.add('process-application', queueJobData);
-      }
+      // Always queue for new apps, as we either have a file or synthesized text
+      await this.applicationsQueue.add('process-application', queueJobData);
+
       return { skipped: false, updated: false };
     }
   }
@@ -300,7 +367,7 @@ export class CsvImportService {
     if (keywords.some((k) => locationText.includes(k))) return true;
 
     const phoneRaw =
-      row['numerodetelephoneinternational'] || row['telephone'] || '';
+      row['numerodetelephoneinternational'] || row['telephone'] || row['phone'] || '';
     const cleanPhone = phoneRaw.replace(/[^0-9]/g, '');
     if (cleanPhone.startsWith('212') || cleanPhone.startsWith('00212'))
       return true;
@@ -308,7 +375,7 @@ export class CsvImportService {
   }
 
   private extractJobTitle(row: any): string {
-    let title = row['poste'];
+    let title = row['poste'] || row['jobtitle'] || row['position'];
     if (!title || title === '00' || /^\d+$/.test(title)) {
       const url = row['url'];
       if (url) {
@@ -400,17 +467,17 @@ export class CsvImportService {
         'kijiji',
         'craigslist',
         'ioswebsite',
+        'linkedin',
       ];
       const foundSite = sites.find((s) => has(s));
       sourcing.detail = row['specifywebsite'] || foundSite || 'Unknown Site';
     } else if (
       has('fromsocialmedia') ||
       has('facebook') ||
-      has('instagram') ||
-      has('linkedin')
+      has('instagram')
     ) {
       sourcing.channel = 'Social Media';
-      const socials = ['facebook', 'instagram', 'linkedin'];
+      const socials = ['facebook', 'instagram'];
       const foundSocial = socials.find((s) => has(s));
       sourcing.detail =
         row['specifywebsite_1'] || foundSocial || 'Unknown Social';

@@ -1,11 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto, Role } from './dto/create-user.dto';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   async create(dto: CreateUserDto) {
     // Use provided password or default to temp
@@ -56,6 +56,24 @@ export class UsersService {
     return this.prisma.user.findUnique({
       where: { email },
     });
+  }
+
+  async findOne(id: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        role: true,
+        availability: true,
+        googleCalendarId: true, // Useful for frontend to show sync status
+        googleAccessToken: true,
+        outlookAccessToken: true,
+      }
+    });
+    if (!user) throw new NotFoundException('User not found');
+    return user;
   }
 
   findAll(role?: string) {

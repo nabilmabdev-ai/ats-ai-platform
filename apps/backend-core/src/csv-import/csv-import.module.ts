@@ -4,6 +4,7 @@ import { CsvImportController } from './csv-import.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { BullModule } from '@nestjs/bullmq';
 import { HttpModule } from '@nestjs/axios';
+import { DeduplicationModule } from '../deduplication/deduplication.module';
 
 @Module({
   imports: [
@@ -12,8 +13,9 @@ import { HttpModule } from '@nestjs/axios';
     BullModule.registerQueue({
       name: 'applications',
     }),
+    DeduplicationModule,
   ],
   controllers: [CsvImportController],
   providers: [CsvImportService],
 })
-export class CsvImportModule {}
+export class CsvImportModule { }

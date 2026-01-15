@@ -4,6 +4,7 @@ import { JobsService } from './jobs.service';
 import { JobsController } from './jobs.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { EmailModule } from '../email/email.module'; // <--- Import EmailModule
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -13,8 +14,9 @@ import { EmailModule } from '../email/email.module'; // <--- Import EmailModule
       maxRedirects: 5,
     }),
     EmailModule, // <--- Add to imports
+    NotificationsModule,
   ],
   controllers: [JobsController],
   providers: [JobsService],
 })
-export class JobsModule {}
+export class JobsModule { }

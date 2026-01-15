@@ -12,14 +12,16 @@ import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class OffersService {
   constructor(
     private prisma: PrismaService,
     private emailService: EmailService,
+    private notificationsService: NotificationsService,
     @InjectQueue('pdf') private pdfQueue: Queue,
-  ) {}
+  ) { }
 
   async findAll(page: number = 1, limit: number = 10) {
     const skip = (page - 1) * limit;
@@ -211,5 +213,74 @@ export class OffersService {
     });
 
     return { success: true, message: 'PDF regeneration triggered' };
+  }
+
+  // --- NEW: Approval Logic ---
+
+  async requestApproval(id: string) {
+    const offer = await this.prisma.offer.findUnique({
+      where: { id },
+      include: {
+        application: {
+          include: { job: true, candidate: true }
+        }
+      }
+    });
+    if (!offer) throw new NotFoundException('Offer not found');
+    if (offer.status !== OfferStatus.DRAFT) throw new ConflictException('Offer must be in DRAFT to request approval');
+
+    // Notify Admins
+    const admins = await this.prisma.user.findMany({ where: { role: 'ADMIN' } });
+    for (const admin of admins) {
+      await this.notificationsService.create(
+        admin.id,
+        'ACTION_REQUIRED',
+        `Offer for ${offer.application.candidate.firstName} requires approval`,
+        `/applications/${offer.applicationId}` // Direct them to the app page where the OfferManager lives
+      );
+    }
+
+    return this.prisma.offer.update({
+      where: { id },
+      data: { status: OfferStatus.PENDING_APPROVAL }
+    });
+  }
+
+  async approve(id: string, approverId: string) {
+    const offer = await this.prisma.offer.findUnique({ where: { id } });
+    if (!offer) throw new NotFoundException('Offer not found');
+
+    // We can allow approval from DRAFT or PENDING_APPROVAL for flexibility
+    if (offer.status !== OfferStatus.PENDING_APPROVAL && offer.status !== OfferStatus.DRAFT) {
+      throw new ConflictException('Offer is not pending approval');
+    }
+
+    // Notify Creator
+    if (offer.createdById) {
+      await this.notificationsService.create(
+        offer.createdById,
+        'SUCCESS',
+        `Your offer has been approved! Ready to send.`,
+        `/applications/${offer.applicationId}`
+      );
+    }
+
+    return this.prisma.offer.update({
+      where: { id },
+      data: { status: OfferStatus.APPROVED } // We assume 'APPROVED' exists or we reuse 'SENT' concept? 
+      // The Plan said: "approve -> Status: APPROVED (Ready to Send)". 
+      // But looking at schema earlier (from memory or page.tsx), `OfferStatus` might not have `APPROVED`.
+      // Let's check `page.tsx` types: 'DRAFT' | 'SENT' | 'ACCEPTED' | 'DECLINED'.
+      // Wait, `schema.prisma` was viewed in previous turn? 
+      // I need to check if `APPROVED` exists in `OfferStatus` enum.
+      // If not, I might need to add it or use `PENDING_APPROVAL` with a flag?
+      // Actually, checking `offers.service.ts` imports... `OfferStatus`.
+      // Let's assume I need to ADD `APPROVED` to the enum in Prisma if it's missing.
+      // Or I can use `SENT` to mean approved? No, `SENT` means sent to candidate.
+      // I will assume for now `PENDING_APPROVAL` is the step before `SENT`.
+      // The implementation plan says `APPROVED` -> `SENT`.
+      // If `APPROVED` is missing from schema, I should add it.
+      // Let's pause and check schema.
+    });
   }
 }

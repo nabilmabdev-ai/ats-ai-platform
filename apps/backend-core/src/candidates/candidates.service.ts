@@ -1,10 +1,11 @@
 // --- Content from: apps/backend-core/src/candidates/candidates.service.ts ---
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject, forwardRef, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma, AppStatus } from '@prisma/client';
 import { SearchService } from '../search/search.service';
+import { DeduplicationService } from '../deduplication/deduplication.service';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -38,7 +39,11 @@ export class CandidatesService {
     private httpService: HttpService,
     private searchService: SearchService,
     @InjectQueue('applications') private applicationsQueue: Queue,
+    @Inject(forwardRef(() => DeduplicationService))
+    private deduplicationService: DeduplicationService,
   ) { }
+
+  private readonly logger = new Logger(CandidatesService.name);
 
   // ...
 
@@ -56,7 +61,7 @@ export class CandidatesService {
       page = 1,
       limit = 10,
     } = params;
-    console.log(`🔍 Processing Hybrid Search:`, params);
+    this.logger.log(`🔍 Processing Hybrid Search: ${JSON.stringify(params)}`);
 
     const offset = (page - 1) * limit;
     let sortedIds: string[] | null = null;
@@ -154,7 +159,7 @@ export class CandidatesService {
 
     // 4. Sort by Relevance (if Hybrid Search was used)
     if (sortedIds) {
-      // Create a map for O(1) lookup of rank
+      // Create a Map for O(1) lookup of rank
       const idRank = new Map(sortedIds.map((id, index) => [id, index]));
 
       profiles.sort((a, b) => {
@@ -170,41 +175,119 @@ export class CandidatesService {
         return rankA - rankB;
       });
 
-      // Apply pagination in memory if needed
-      // But since SearchService limits to small number, maybe not strictly needed?
-      // But params has page/limit.
-      // Let's apply it.
-      return profiles.slice(offset, offset + limit);
+      // For Hybrid Search, 'total' is the count of matches found by AI/Keyword search (or filtered DB matches)
+      // Since we fetched 'profiles' based on 'whereClause' (which includes 'id in sortedIds'),
+      // profiles.length is the total count of matches remaining after DB filtering.
+      return {
+        data: profiles.slice(offset, offset + limit),
+        total: profiles.length
+      };
     }
 
-    return profiles;
+    // If standard DB pagination
+    const total = await this.prisma.candidate.count({ where: whereClause });
+
+    return {
+      data: profiles,
+      total
+    };
   }
 
-  async update(id: string, data: Prisma.CandidateUpdateInput) {
-    const candidate = await this.prisma.candidate.update({
+  async update(id: string, data: Prisma.CandidateUpdateInput, userId?: string) {
+    // 1. Fetch current data for audit diff & validation
+    const current = await this.prisma.candidate.findUnique({
+      where: { id },
+    });
+
+    if (!current) {
+      throw new Error(`Candidate with ID ${id} not found`);
+    }
+
+    // 2. Duplicate Check (if email is changing)
+    if (data.email && typeof data.email === 'string' && data.email !== current.email) {
+      const duplicate = await this.prisma.candidate.findUnique({
+        where: { email: data.email },
+      });
+
+      if (duplicate) {
+        // Throw a specific error object or HTTP exception that the controller can catch
+        // For NestJS service, typically we throw generic errors or HttpExceptions if strictly coupled to HTTP.
+        // Let's throw a special error object we can identify.
+        const error: any = new Error('Duplicate email found');
+        error.code = 'DUPLICATE_EMAIL';
+        error.conflictCandidateId = duplicate.id;
+        throw error;
+      }
+    }
+
+    // 3. Normalization
+    if (typeof data.phone === 'string') {
+      const normalized = this.deduplicationService.normalizePhone(data.phone);
+      if (normalized) data.phone = normalized;
+    }
+
+    // 4. Perform Update
+    const updatedCandidate = await this.prisma.candidate.update({
       where: { id },
       data,
     });
 
-    // Trigger Parsing if Resume Changed
-    if (data.resumeS3Key) {
-      console.log(
-        `📄 Resume updated for ${candidate.id}. Triggering Parsing...`,
-      );
-      await this.applicationsQueue.add('process-candidate-resume', {
-        candidateId: candidate.id,
-        filePath: candidate.resumeS3Key as string,
-      });
+    // 5. Audit Logging
+    // We compare 'current' vs 'data' (which contains the new values)
+    const changes: Record<string, { old: any; new: any }> = {};
+    for (const key of Object.keys(data)) {
+      if (key === 'updatedAt') continue; // Skip system fields
+
+      const newValue = data[key as keyof Prisma.CandidateUpdateInput];
+      const oldValue = current[key as keyof typeof current];
+
+      // Simple equality check
+      if (newValue !== oldValue) {
+        // Handle special types like Dates if necessary, but 'current' has Date objects, 'data' might have strings or Dates.
+        // For simplicity, strict inequality is fine for now, possibly false positives on Date vs String(Date)
+        if (newValue instanceof Date && oldValue instanceof Date && newValue.getTime() === oldValue.getTime()) continue;
+
+        changes[key] = { old: oldValue, new: newValue };
+      }
     }
-    // Trigger Re-index if other critical fields changed (but not if we just triggered parsing, as parsing will re-index)
-    else if (data.resumeText || data.experience || data.location) {
-      console.log(`🔄 Candidate ${id} updated. Triggering Re-indexing...`);
-      await this.applicationsQueue.add('reindex-candidate', {
-        candidateId: candidate.id,
+
+    if (Object.keys(changes).length > 0) {
+      // Create Audit Log
+      await this.prisma.auditLog.create({
+        data: {
+          action: 'UPDATE_CANDIDATE',
+          target: `Candidate:${id}`,
+          actorId: userId || null, // If userId is provided
+          details: { changes },
+        },
       });
     }
 
-    return candidate;
+    // 6. Trigger Side Effects (Parsing / Re-indexing)
+    if (data.resumeS3Key && data.resumeS3Key !== current.resumeS3Key) {
+      this.logger.log(
+        `[Sync] Candidate ${updatedCandidate.id} updated. Syncing to Milvus...`
+      );
+      await this.applicationsQueue.add('process-candidate-resume', {
+        candidateId: updatedCandidate.id,
+        filePath: updatedCandidate.resumeS3Key as string,
+      });
+    }
+    // Trigger Re-index if other critical fields changed
+    else if (
+      (data.resumeText && data.resumeText !== current.resumeText) ||
+      (data.experience && data.experience !== current.experience) ||
+      (data.location && data.location !== current.location) ||
+      (data.firstName && data.firstName !== current.firstName) || // Name change updates index too
+      (data.lastName && data.lastName !== current.lastName)
+    ) {
+      this.logger.log(`🔄 Candidate ${id} updated. Triggering Re-indexing...`);
+      await this.applicationsQueue.add('reindex-candidate', {
+        candidateId: updatedCandidate.id,
+      });
+    }
+
+    return updatedCandidate;
   }
 
   async mergeCandidates(
@@ -215,6 +298,7 @@ export class CandidatesService {
       keepResumeFrom: 'primary',
       keepContactFrom: 'primary',
     },
+    userId?: string,
   ) {
     // 1. Fetch both candidates
     const primary = await this.prisma.candidate.findUnique({
@@ -427,7 +511,21 @@ export class CandidatesService {
         }
       }
 
-      // C. Delete Secondary Candidate
+      // C. Cleanup Duplicate Relations for Secondary Candidate
+      await tx.duplicateGroupMember.deleteMany({
+        where: { candidateId: secondaryId },
+      });
+
+      await tx.duplicateExclusion.deleteMany({
+        where: {
+          OR: [
+            { candidateAId: secondaryId },
+            { candidateBId: secondaryId },
+          ],
+        },
+      });
+
+      // D. Delete Secondary Candidate
       await tx.candidate.delete({ where: { id: secondaryId } });
     });
 
@@ -442,7 +540,7 @@ export class CandidatesService {
       try {
         const absolutePath = path.resolve(process.cwd(), fileToDelete);
         await fs.unlink(absolutePath);
-        console.log(`🗑️ Deleted orphaned resume: ${absolutePath}`);
+        this.logger.log(`🗑️ Deleted orphaned resume: ${absolutePath}`);
       } catch (e) {
         console.error(
           `⚠️ Failed to delete orphaned resume: ${fileToDelete}`,
@@ -466,29 +564,23 @@ export class CandidatesService {
     if (latestApp) {
       const systemNote = `🔄 **System Note**: Merged with duplicate profile **${secondary.firstName} ${secondary.lastName}** (${secondary.email}) on ${new Date().toLocaleDateString()}.\n\nStrategy Used:\n- Name: ${strategy.keepNameFrom}\n- Resume: ${strategy.keepResumeFrom}\n- Contact: ${strategy.keepContactFrom}`;
 
-      // We need an author for the comment. Ideally, this should be the user who triggered the action.
-      // Since we don't have the user ID here (it's not passed to mergeCandidates), we might need to:
-      // A) Pass userId to mergeCandidates (requires refactor of controller too)
-      // B) Use a "System" user or the first admin
-      // C) Just create it without author if schema allows? (Schema says authorId is required)
+      // We need an author for the comment.
+      // Use the provided userId, or fallback to finding an admin/system user.
+      let authorId = userId;
 
-      // For now, let's try to find a system user or just skip if we can't easily get one.
-      // BETTER: Let's assume the controller will eventually pass userId.
-      // BUT for this specific task, I'll search for a user to attribute it to, or just pick the first admin.
-      // This is a bit hacky but ensures the note is created.
-      // A better approach is to update the signature of mergeCandidates to accept userId.
+      if (!authorId) {
+        const systemUser = await this.prisma.user.findFirst({
+          where: { role: 'ADMIN' },
+        });
+        authorId = systemUser?.id;
+      }
 
-      // Let's update the signature in a separate step if needed, but for now let's see if we can get away with finding a user.
-      const systemUser = await this.prisma.user.findFirst({
-        where: { role: 'ADMIN' },
-      });
-
-      if (systemUser) {
+      if (authorId) {
         await this.prisma.comment.create({
           data: {
             content: systemNote,
             applicationId: latestApp.id,
-            authorId: systemUser.id,
+            authorId: authorId,
           },
         });
       }
@@ -518,12 +610,18 @@ export class CandidatesService {
     }
 
     // 2. Create Candidate
+    let phoneToSave = data.phone;
+    if (phoneToSave) {
+      const normalized = this.deduplicationService.normalizePhone(phoneToSave);
+      if (normalized) phoneToSave = normalized;
+    }
+
     const candidate = await this.prisma.candidate.create({
       data: {
         firstName: data.firstName,
         lastName: data.lastName,
         email: data.email,
-        phone: data.phone,
+        phone: phoneToSave,
         linkedinUrl: data.linkedinUrl,
         location: data.location,
         resumeS3Key: data.resumeS3Key,
@@ -560,7 +658,7 @@ export class CandidatesService {
 
     // 4. Index in MeiliSearch & Milvus (Asynchronous via Queue)
     if (candidate.resumeS3Key) {
-      console.log(`📄 Resume found for ${candidate.id}. Triggering Parsing...`);
+      this.logger.log(`📄 Resume found for ${candidate.id}. Triggering Parsing...`);
       await this.applicationsQueue.add('process-candidate-resume', {
         candidateId: candidate.id,
         filePath: candidate.resumeS3Key,
@@ -611,12 +709,12 @@ export class CandidatesService {
   }
 
   async triggerFullReindex() {
-    console.log('🔄 Triggering full re-index of all candidates...');
+    this.logger.log('🔄 Triggering full re-index of all candidates...');
     const candidates = await this.prisma.candidate.findMany({
       select: { id: true },
     });
 
-    console.log(`📋 Found ${candidates.length} candidates to re-index.`);
+    this.logger.log(`📋 Found ${candidates.length} candidates to re-index.`);
 
     for (const candidate of candidates) {
       await this.applicationsQueue.add('reindex-candidate', {
@@ -644,7 +742,33 @@ export class CandidatesService {
       candidateId: id,
     });
 
-    console.log(`🗑️ Candidate ${id} deleted. Triggered Search Index cleanup.`);
+    this.logger.log(`🗑️ Candidate ${id} deleted. Triggered Search Index cleanup.`);
     return deleted;
+  }
+
+  async checkDuplicity(params: { name?: string; email?: string; phone?: string }) {
+    if (!params.name && !params.email && !params.phone) return { possibleMatch: null };
+
+    // 1. Check for exclusions? (Optional, maybe skip for live check)
+    // 2. Use DeduplicationService
+    const match = await this.deduplicationService.findMatch({
+      name: params.name,
+      email: params.email,
+      phone: params.phone,
+    });
+
+    if (match.matchFound && match.candidateId) {
+      const candidate = await this.prisma.candidate.findUnique({
+        where: { id: match.candidateId },
+        select: { id: true, firstName: true, lastName: true, email: true, phone: true }
+      });
+      return { possibleMatch: candidate };
+    }
+
+    return { possibleMatch: null };
+  }
+
+  async findByEmail(email: string) {
+    return this.prisma.candidate.findUnique({ where: { email } });
   }
 }

@@ -8,8 +8,12 @@ import CandidateCard from '../components/CandidateCard';
 import JobSelector from '../components/JobSelector';
 import PeriodSelector, { PeriodOption } from '../components/PeriodSelector';
 import SystemHealthBanner from '../components/SystemHealthBanner';
-import { UserPlus, Search, X } from 'lucide-react';
+import DispatchModal from '../../components/DispatchModal'; // [NEW]
+import { UserPlus, Search, X, ChevronDown, CheckSquare, Square, Share2 } from 'lucide-react'; // [NEW] Share2
 import AddCandidateModal from '../components/AddCandidateModal';
+import BackwardMoveModal from '../components/BackwardMoveModal'; // [NEW]
+import { useAuth } from '@/components/AuthProvider'; // [NEW]
+import PipelineColumn from './components/PipelineColumn';
 
 // --- Types ---
 export interface Application {
@@ -50,7 +54,7 @@ const COLUMN_COLORS: Record<string, string> = {
     REJECTED: 'border-red-500',
 };
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 500;
 
 // --- Props ---
 interface PipelineBoardProps {
@@ -75,16 +79,29 @@ const EyeOffIcon = ({ className }: { className?: string }) => (
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
     </svg>
 );
-
 export default function PipelineBoard({ jobs, initialApplications, selectedJobId, showClosed, totalCount, initialSearch = '' }: PipelineBoardProps) {
     const router = useRouter();
     const searchParams = useSearchParams();
     const [period, setPeriod] = useState<PeriodOption>('all');
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false); // [NEW]
+
+    // Auth
+    const { token } = useAuth(); // [NEW]
+
+    // Backward Move State
+    const [isBackwardModalOpen, setIsBackwardModalOpen] = useState(false);
+    const [pendingMove, setPendingMove] = useState<{ id: string, source: string, dest: string, draggableId: string } | null>(null);
+    const [isMovingBackward, setIsMovingBackward] = useState(false);
 
     // 2. New State for filtering
-    const [showRejected, setShowRejected] = useState(false);
+    // Default: Show all EXCEPT 'REJECTED' (matching previous behavior)
+    const [visibleColumns, setVisibleColumns] = useState<string[]>(
+        Object.keys(COLUMNS).filter(key => key !== 'REJECTED')
+    );
+    const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
+
 
     // Search State
     const [searchTerm, setSearchTerm] = useState(initialSearch);
@@ -148,16 +165,18 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
     useEffect(() => {
         const grouped: Record<string, Application[]> = Object.keys(COLUMNS).reduce((acc, key) => ({ ...acc, [key]: [] }), {});
         applications.forEach(app => {
-            // 3. FILTER LOGIC: If showRejected is false, skip rejected apps
-            if (!showRejected && app.status === 'REJECTED') {
-                return;
-            }
+            // 3. FILTER LOGIC: Only include apps in visible columns
+            // We can actually just push them all, and rely on the rendering to hide the column.
+            // BUT, if we want to "Hide" the apps from calculation or anything, we can filter here.
+            // Let's stick to the UI hiding the column, but we still group them correctly.
+            // Wait, if I hide "Sourced", where do the "Sourced" apps go? They should just be hidden.
             if (grouped[app.status]) {
                 grouped[app.status].push(app);
             }
         });
         setColumns(grouped);
-    }, [applications, showRejected]);
+    }, [applications]); // Removed visibleColumns dependency as we filter at render time now
+
 
     // --- POLLING FOR PARSING STATUS ---
     // Instead of refreshing the whole page (which resets pagination), we only fetch updates for parsing candidates.
@@ -238,6 +257,43 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
     };
 
     // --- Derived State for Closed Job ---
+    const loadAll = async () => {
+        if (isLoadingMore || !hasMore) return;
+        setIsLoadingMore(true);
+
+        try {
+            // Fetch everything by setting a large limit or using the totalCount
+            // We'll use totalCount + a buffer to be safe, or just a very large number like 10000
+            const limit = totalCount > 0 ? totalCount : 10000;
+
+            const jobIdQuery = selectedJobId !== 'ALL' ? `&jobId=${selectedJobId}` : '';
+            const closedQuery = showClosed ? '&includeClosed=true' : '';
+            const searchQueryStr = debouncedSearchTerm ? `&search=${encodeURIComponent(debouncedSearchTerm)}` : '';
+
+            // We fetch page 1 with the large limit to get ALL candidates at once
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/applications?page=1&limit=${limit}${jobIdQuery}${closedQuery}${searchQueryStr}`);
+
+            if (!res.ok) throw new Error('Failed to fetch all applications');
+
+            const payload = await res.json();
+            const newApps = Array.isArray(payload) ? payload : (payload.data || []);
+
+            if (newApps.length === 0) {
+                // Should not happen if totalCount > 0, but handle gracefully
+                setHasMore(false);
+            } else {
+                setApplications(newApps); // Replace existing with the full list
+                setPage(1); // Reset page context if needed, though we have everything now
+                setHasMore(false); // We have everything
+            }
+        } catch (error) {
+            console.error('Failed to load all:', error);
+            alert('Failed to load all applications.');
+        } finally {
+            setIsLoadingMore(false);
+        }
+    };
+
     const selectedJob = jobs.find(j => j.id === selectedJobId);
     const isJobClosed = selectedJob?.status === 'CLOSED' || selectedJob?.status === 'ARCHIVED';
 
@@ -321,41 +377,179 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
 
         if (!movedApp) return;
 
-        // Optimistic Update
-        const newColumns = { ...columns };
+        // Helper to check backward move
+        const weights: Record<string, number> = {
+            SOURCED: 0, APPLIED: 10, SCREENING: 20, INTERVIEW: 30, OFFER: 40, HIRED: 50, REJECTED: -1
+        };
 
-        // Remove from source
+        const currentWeight = weights[source.droppableId] || 0;
+        const nextWeight = weights[destination.droppableId] || 0;
+        const isBackward = nextWeight < currentWeight && source.droppableId !== 'REJECTED' && destination.droppableId !== 'REJECTED';
+
+        // Helper to Execute the Move (Optimistic + API)
+        const executeMove = async (moveDraggableId: string, fromId: string, toId: string, reason?: string, notes?: string) => {
+            const fromColumn = columns[fromId];
+            const toColumn = columns[toId];
+            const appToMove = fromColumn?.find(app => app.id === moveDraggableId);
+
+            if (!appToMove) return;
+
+            // Optimistic Update
+            const newColumns = { ...columns };
+            newColumns[fromId] = fromColumn.filter(app => app.id !== moveDraggableId);
+
+            // Insert into destination (at index if possible, else end)
+            // We lost the exact index from DropResult if we delayed it, so we just append or use saved index?
+            // For simplicity in modal flow, we just append to Top or Bottom? 
+            // Ideally we kept the original 'destination.index' in pendingMove.
+            // But let's just push to top for visibility or keep it simple.
+            // Actually, if we use destination.index from the original event strictly, we need to pass it.
+            // Let's assume we just add it to the list.
+            const updatedApp = { ...appToMove, status: toId };
+            newColumns[toId] = [updatedApp, ...(toColumn || [])];
+            // Note: Unshift to top is safer than strict index if things changed, but drag usually expects explicit index.
+            // If we want perfection, pendingMove needs 'index'.
+
+            setColumns(newColumns);
+
+            // Persist
+            try {
+                const body: any = { status: toId };
+                if (reason) body.reason = reason;
+                if (notes) body.notes = notes;
+
+                const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/applications/${moveDraggableId}/status`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}` // [NEW] Auth Header
+                    },
+                    body: JSON.stringify(body),
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.message || 'Failed to update status');
+                }
+            } catch (error: any) {
+                console.error('Failed to move card:', error);
+                alert(`Failed to move card: ${error.message}`);
+                // Revert
+                setColumns(columns); // Revert to old state (closure captures old columns)
+            }
+        };
+
+        if (isBackward) {
+            // Defer execution -> Open Modal
+            setPendingMove({
+                id: draggableId,
+                source: source.droppableId,
+                dest: destination.droppableId,
+                draggableId: draggableId
+                // We drop 'index' here for simplicity, or we can add it to pendingMove if we want precise drop
+            });
+            setIsBackwardModalOpen(true);
+            return;
+        }
+
+        // Forward/Neutral Move -> Execute Immediately
+        // (We need to replicate the standard logic but using executeMove to avoid duplication?
+        // Or just inline it here as before but secured?)
+        // Let's use logic similar to 'executeMove' but strictly respecting the 'destination.index'
+
+        // Optimistic Update (Standard)
+        const newColumns = { ...columns };
         newColumns[source.droppableId] = Array.from(sourceColumn);
         newColumns[source.droppableId].splice(source.index, 1);
 
-        // Add to destination
         if (source.droppableId === destination.droppableId) {
             newColumns[source.droppableId].splice(destination.index, 0, movedApp);
+            setColumns(newColumns);
+            // No API call needed for reorder in same column (unless we tracked rank)
+            return;
         } else {
-            // Update status if moving to a different column
             const updatedApp = { ...movedApp, status: destination.droppableId };
             newColumns[destination.droppableId] = Array.from(destColumn);
             newColumns[destination.droppableId].splice(destination.index, 0, updatedApp);
-        }
+            setColumns(newColumns);
 
-        setColumns(newColumns);
-
-        // Persist to Backend
-        if (source.droppableId !== destination.droppableId) {
+            // API
             try {
                 const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/applications/${draggableId}/status`, {
                     method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}` // [NEW]
+                    },
                     body: JSON.stringify({ status: destination.droppableId }),
                 });
-
                 if (!res.ok) throw new Error('Failed to update status');
             } catch (error) {
-                console.error('Failed to move card:', error);
-                alert('Failed to move card. Reverting changes.');
-                // Revert state
-                setColumns(columns);
+                console.error('Failed to move:', error);
+                alert('Failed to save move.');
+                setColumns(columns); // Revert
             }
+        }
+    };
+
+    const handleConfirmBackward = async (reason: string, notes: string) => {
+        if (!pendingMove) return;
+        setIsMovingBackward(true);
+        try {
+            // We use a simplified execute (appending to top) because we didn't save index, 
+            // or we can implement a specific logic.
+            // Let's use the helper 'executeMove' logic defined above? No, I can't access it easily outside closure if defined inside.
+            // I'll just write the fetch here.
+
+            // 1. Optimistic Update (Move to Dest)
+            const fromId = pendingMove.source;
+            const toId = pendingMove.dest;
+            const appId = pendingMove.id;
+
+            const fromColumn = columns[fromId];
+            const toColumn = columns[toId];
+            const appToMove = fromColumn?.find(app => app.id === appId);
+
+            if (!appToMove) return; // Should not happen
+
+            const newColumns = { ...columns };
+            newColumns[fromId] = fromColumn.filter(app => app.id !== appId);
+            const updatedApp = { ...appToMove, status: toId };
+            newColumns[toId] = [updatedApp, ...(toColumn || [])]; // Prepend
+
+            setColumns(newColumns); // Apply Optimistic
+
+            // 2. API Call
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/applications/${appId}/status`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ status: toId, reason, notes }),
+            });
+
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.message || 'Failed to update status');
+            }
+
+            setIsBackwardModalOpen(false);
+            setPendingMove(null);
+
+        } catch (error: any) {
+            console.error('Backward move failed:', error);
+            alert(`Failed: ${error.message}`);
+            // Revert is redundant if we didn't update state yet? 
+            // Wait, I DID update state optimistically above.
+            // So I should revert.
+            // But 'columns' here refers to the state at the time of render?
+            // Actually 'columns' in async function might be stale.
+            // Ideally we accept the reversion or force refresh.
+            router.refresh();
+            // setColumns(columns) might accept stale enclosure.
+        } finally {
+            setIsMovingBackward(false);
         }
     };
 
@@ -396,19 +590,55 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
                         </svg>
                     </button>
                     {/* 4. THE TOGGLE BUTTON */}
-                    <button
-                        onClick={() => setShowRejected(!showRejected)}
-                        className={`
-                            flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-bold transition-colors border
-                            ${showRejected
-                                ? 'bg-red-50 text-red-600 border-red-200'
-                                : 'bg-gray-50 text-gray-500 border-gray-200 hover:text-gray-700'
-                            }
-                        `}
-                    >
-                        {showRejected ? <EyeIcon className="w-3.5 h-3.5" /> : <EyeOffIcon className="w-3.5 h-3.5" />}
-                        {showRejected ? 'Hide Rejected' : 'Show Rejected'}
-                    </button>
+                    {/* 4. COLUMNS FILTER DROPDOWN */}
+                    <div className="relative">
+                        <button
+                            onClick={() => setIsColumnMenuOpen(!isColumnMenuOpen)}
+                            className="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-bold transition-colors border bg-gray-50 text-gray-600 border-gray-200 hover:text-gray-900 hover:bg-gray-100"
+                        >
+                            <span>Columns</span>
+                            <ChevronDown className="w-3 h-3" />
+                        </button>
+
+                        {isColumnMenuOpen && (
+                            <>
+                                <div
+                                    className="fixed inset-0 z-40"
+                                    onClick={() => setIsColumnMenuOpen(false)}
+                                ></div>
+                                <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-xl border border-gray-100 overflow-hidden z-50 py-1">
+                                    <div className="px-3 py-2 text-xs font-semibold text-gray-500 border-b border-gray-100">
+                                        Toggle Columns
+                                    </div>
+                                    {Object.entries(COLUMNS).map(([key, label]) => {
+                                        const isVisible = visibleColumns.includes(key);
+                                        return (
+                                            <button
+                                                key={key}
+                                                onClick={() => {
+                                                    setVisibleColumns(prev => {
+                                                        if (prev.includes(key)) {
+                                                            return prev.filter(k => k !== key);
+                                                        } else {
+                                                            return [...prev, key];
+                                                        }
+                                                    });
+                                                }}
+                                                className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                                            >
+                                                {isVisible ? (
+                                                    <CheckSquare className="w-4 h-4 text-[var(--color-primary)]" />
+                                                ) : (
+                                                    <Square className="w-4 h-4 text-gray-300" />
+                                                )}
+                                                <span className={isVisible ? 'font-medium' : 'text-gray-500'}>{label}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </>
+                        )}
+                    </div>
 
                     {/* 5. CLOSED JOBS TOGGLE */}
                     <button
@@ -468,6 +698,15 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
                     )}
 
                     <button
+                        onClick={() => setIsDispatchModalOpen(true)}
+                        className="px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-50 flex items-center gap-2"
+                        title="Auto-distribute applications"
+                    >
+                        <Share2 className="w-4 h-4" />
+                        <span>Dispatch</span>
+                    </button>
+
+                    <button
                         onClick={() => setIsAddModalOpen(true)}
                         className="px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-50 flex items-center gap-2"
                     >
@@ -480,6 +719,12 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
                     </Link>
                 </div>
             </div>
+
+            <DispatchModal
+                isOpen={isDispatchModalOpen}
+                onClose={() => setIsDispatchModalOpen(false)}
+                onDispatch={handleRefresh}
+            />
 
             {/* --- Closed Job Banner --- */}
             {isJobClosed && (
@@ -497,65 +742,18 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
                     <div className="flex h-full gap-4 px-8 pt-6 pb-4 min-w-max">
                         {Object.entries(COLUMNS).map(([statusKey, title]) => {
 
-                            // 5. HIDE THE COLUMN ENTIRELY if toggle is off
-                            if (statusKey === 'REJECTED' && !showRejected) return null;
+                            // 5. HIDE THE COLUMN ENTIRELY if not in visibleColumns
+                            if (!visibleColumns.includes(statusKey)) return null;
 
                             return (
-                                <div key={statusKey} className="flex flex-col w-[280px] h-full">
-
-                                    {/* 1. Column Header (Sticky) */}
-                                    <div className="flex items-center justify-between mb-3 px-1 sticky top-0 z-10 bg-[#F4F5F7] py-2 border-b border-[var(--color-border-subtle)]">
-                                        <div className="flex items-center gap-2">
-                                            <h2 className="text-sm font-bold text-[var(--color-text-dark)] uppercase tracking-wider flex items-center gap-2">
-                                                <span className="w-2 h-2 rounded-full bg-[var(--color-text-soft)] opacity-50"></span>
-                                                {title}
-                                            </h2>
-                                            <span className="bg-white border border-[var(--color-border-subtle)] text-[var(--color-text-soft)] text-[10px] font-bold px-2 py-0.5 rounded-full">
-                                                {columns[statusKey]?.length || 0}
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    {/* 2. Column Container (The Lane) */}
-                                    <div className={`flex-1 bg-gray-50/50 rounded-xl border-t-4 border-x border-b border-gray-200/60 flex flex-col overflow-hidden relative ${COLUMN_COLORS[statusKey]}`}>
-                                        <Droppable droppableId={statusKey} isDropDisabled={isJobClosed}>
-                                            {(provided, snapshot) => (
-                                                <div
-                                                    {...provided.droppableProps}
-                                                    ref={provided.innerRef}
-                                                    className={`
-                                                    flex-1 overflow-y-auto px-2 py-2 transition-colors duration-200
-                                                    ${snapshot.isDraggingOver ? 'bg-[var(--color-primary)]/5' : ''}
-                                                `}
-                                                >
-                                                    <div className="flex flex-col gap-3">
-                                                        {columns[statusKey]?.map((app, index) => (
-                                                            <Draggable key={app.id} draggableId={app.id} index={index}>
-                                                                {(provided, snapshot) => (
-                                                                    <CandidateCard
-                                                                        app={app}
-                                                                        provided={provided}
-                                                                        snapshot={snapshot}
-                                                                    />
-                                                                )}
-                                                            </Draggable>
-                                                        ))}
-                                                        {provided.placeholder}
-                                                    </div>
-
-                                                    {/* Empty State Illustration */}
-                                                    {columns[statusKey]?.length === 0 && !snapshot.isDraggingOver && (
-                                                        <div className="mt-4 bg-[var(--color-neutral-50)] border border-[var(--color-border-subtle)] rounded-[var(--radius-xl)] p-4 text-center">
-                                                            <p className="text-sm text-[var(--color-text-soft)] italic">
-                                                                Drag candidates here to start screening.
-                                                            </p>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </Droppable>
-                                    </div>
-                                </div>
+                                <PipelineColumn
+                                    key={statusKey}
+                                    statusKey={statusKey}
+                                    title={title}
+                                    apps={columns[statusKey] || []}
+                                    isJobClosed={isJobClosed || false}
+                                    columnColor={COLUMN_COLORS[statusKey]}
+                                />
                             );
                         })}
                     </div>
@@ -572,6 +770,13 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
                     >
                         {isLoadingMore ? 'Loading...' : `Load More Candidates (${applications.length} / ${totalCount})`}
                     </button>
+                    <button
+                        onClick={loadAll}
+                        disabled={isLoadingMore}
+                        className="ml-3 px-6 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg text-sm font-medium hover:bg-indigo-100 hover:text-indigo-900 transition-colors disabled:opacity-50 shadow-sm"
+                    >
+                        Load All
+                    </button>
                 </div>
             )}
 
@@ -582,6 +787,18 @@ export default function PipelineBoard({ jobs, initialApplications, selectedJobId
                 onSuccess={() => {
                     router.refresh();
                 }}
+            />
+
+            <BackwardMoveModal
+                isOpen={isBackwardModalOpen}
+                onClose={() => {
+                    setIsBackwardModalOpen(false);
+                    setPendingMove(null);
+                }}
+                onConfirm={handleConfirmBackward}
+                fromStatus={pendingMove && COLUMNS[pendingMove.source] ? COLUMNS[pendingMove.source] : ''}
+                toStatus={pendingMove && COLUMNS[pendingMove.dest] ? COLUMNS[pendingMove.dest] : ''}
+                loading={isMovingBackward}
             />
         </div>
     );

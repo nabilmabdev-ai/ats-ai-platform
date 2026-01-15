@@ -72,6 +72,11 @@ model User {
   googleTokenExpiry  DateTime?
   googleCalendarId   String?  @default("primary")
 
+  // --- NEW: Outlook Calendar Sync ---
+  outlookAccessToken  String?
+  outlookRefreshToken String?
+  outlookTokenExpiry  DateTime?
+
   createdAt DateTime @default(now())
 
   jobsManaged  Job[]       @relation("HiringManager")
@@ -82,8 +87,18 @@ model User {
   
   // --- NEW: Applications Owned ---
   appsOwned    Application[] @relation("AppOwner")
+  
+  // --- NEW: History Changes ---
+  historyChanges ApplicationHistory[]
 
   createdTemplates QuestionTemplate[] @relation("TemplateCreator")
+
+  // --- NEW: Collaboration & System ---
+  notifications Notification[]
+  auditLogs     AuditLog[]
+  
+  tasksAssigned UserTask[]   @relation("TaskAssignee")
+  tasksCreated  UserTask[]   @relation("TaskCreator")
 }
 
 model JobWorkflowTemplate {
@@ -217,6 +232,11 @@ model Candidate {
 
   importBatchId String?
   importBatch   ImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  // --- Duplicate Management ---
+  duplicateGroupMembers DuplicateGroupMember[]
+  exclusionsA           DuplicateExclusion[]   @relation("ExclusionA")
+  exclusionsB           DuplicateExclusion[]   @relation("ExclusionB")
 }
 
 model Application {
@@ -235,6 +255,10 @@ model Application {
   
   // --- NEW: Metadata for CSV Import ---
   metadata Json?
+  
+  // --- NEW: Reporting Dimensions ---
+  source          String? // e.g. "LinkedIn", "Referral", "Indeed"
+  rejectionReason String? // e.g. "Skills Gap", "Culture Fit"
 
   // --- NEW: Tags & Ownership ---
   tags      String[]  @default([])
@@ -253,6 +277,9 @@ model Application {
 
   importBatchId String?
   importBatch   ImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  // --- History ---
+  history ApplicationHistory[]
 
   @@unique([jobId, candidateId])
 }
@@ -327,6 +354,8 @@ model Offer {
 
 enum OfferStatus {
   DRAFT
+  PENDING_APPROVAL
+  APPROVED
   SENT
   ACCEPTED
   DECLINED
@@ -355,11 +384,17 @@ model Company {
   id              String   @id @default(uuid())
   name            String
   logoUrl         String?
+  headerImageUrl  String?  // Custom email header
+  showEmailHeader Boolean  @default(true) // [NEW] Toggle header
+  footerImageUrl  String?  // Custom email footer
+  showEmailFooter Boolean  @default(true) // [NEW] Toggle footer
   address         String?
+  showCompanyAddress Boolean @default(true) // [NEW] Toggle address
   careerPageUrl   String?
   defaultTimezone String?
   aiTone          String?
   enableAutoMerge Boolean  @default(false)
+  emailTemplates  Json?    // Stores e.g. { "interview_invite": { "subject": "...", "body": "..." } }
   description     String?  @db.Text
   
   createdAt       DateTime @default(now())
@@ -395,4 +430,135 @@ model ImportBatch {
 
   applications Application[]
   candidates   Candidate[]
+}
+
+model DuplicateGroup {
+  id        String          @id @default(uuid())
+  status    DuplicateStatus @default(OPEN)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  members DuplicateGroupMember[]
+}
+
+model DuplicateGroupMember {
+  id      String         @id @default(uuid())
+  groupId String
+  group   DuplicateGroup @relation(fields: [groupId], references: [id])
+
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id])
+
+  matchReason Json?
+  confidence  String // HIGH, MEDIUM
+
+  createdAt DateTime @default(now())
+
+  @@unique([groupId, candidateId])
+}
+
+model DuplicateExclusion {
+  id String @id @default(uuid())
+
+  candidateAId String
+  candidateA   Candidate @relation("ExclusionA", fields: [candidateAId], references: [id])
+
+  candidateBId String
+  candidateB   Candidate @relation("ExclusionB", fields: [candidateBId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([candidateAId, candidateBId])
+}
+
+enum DuplicateStatus {
+  OPEN
+  RESOLVED
+  IGNORED
+}
+
+model ApplicationHistory {
+  id            String    @id @default(uuid())
+  
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  
+  fromStatus    AppStatus?
+  toStatus      AppStatus
+  
+  changedById   String?
+  changedBy     User?     @relation(fields: [changedById], references: [id])
+  
+  reason        String?   @db.Text
+  
+  createdAt     DateTime  @default(now())
+
+  @@index([applicationId])
+  @@index([toStatus])
+}
+
+// --- NEW: Notifications ---
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String   // INFO, WARNING, SUCCESS, ERROR, ACTION_REQUIRED
+  message   String
+  read      Boolean  @default(false)
+  link      String?  // Optional link to resource
+  metadata  Json?
+  
+  createdAt DateTime @default(now())
+}
+
+// --- NEW: Audit Logs ---
+model AuditLog {
+  id        String   @id @default(uuid())
+  actorId   String?  // Nullable for system actions
+  actor     User?    @relation(fields: [actorId], references: [id])
+  
+  action    String   // e.g. "CREATE_JOB", "DELETE_CANDIDATE"
+  target    String   // e.g. "Job:123"
+  details   Json?
+  
+  ipAddress String?
+  userAgent String?
+  
+  createdAt DateTime @default(now())
+}
+
+// --- NEW: User Tasks ---
+model UserTask {
+  id          String     @id @default(uuid())
+  title       String
+  description String?    @db.Text
+  
+  assignedToId String
+  assignedTo   User @relation("TaskAssignee", fields: [assignedToId], references: [id])
+  
+  createdById  String
+  createdBy    User @relation("TaskCreator", fields: [createdById], references: [id])
+  
+  dueDate     DateTime?
+  status      TaskStatus @default(TODO)
+  priority    TaskPriority @default(MEDIUM)
+  
+  relatedEntityId   String? // e.g. Candidate ID
+  relatedEntityType String? // "CANDIDATE", "JOB", "APPLICATION"
+  
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
 }

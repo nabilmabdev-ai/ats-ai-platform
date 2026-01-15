@@ -8,7 +8,10 @@ import {
   NotFoundException,
   Query,
   ParseIntPipe,
+  UseGuards,
+  Request,
 } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OffersService } from './offers.service';
 import { CreateOfferDto } from './dto/create-offer.dto';
 import { OfferStatus } from '@prisma/client';
@@ -18,8 +21,7 @@ import { PrismaService } from '../prisma/prisma.service';
 export class OffersController {
   constructor(
     private readonly offersService: OffersService,
-    private readonly prisma: PrismaService,
-  ) {}
+  ) { }
 
   // --- NEW: Get All Offers ---
   @Get()
@@ -32,13 +34,9 @@ export class OffersController {
 
   // 1. Create Draft Offer
   @Post()
-  async create(@Body() createOfferDto: CreateOfferDto) {
-    // Mock Auth: Get first user to act as Creator
-    const user = await this.prisma.user.findFirst();
-    if (!user)
-      throw new NotFoundException('No system user found to create offer');
-
-    return this.offersService.create(createOfferDto, user.id);
+  @UseGuards(JwtAuthGuard)
+  async create(@Body() createOfferDto: CreateOfferDto, @Request() req: any) {
+    return this.offersService.create(createOfferDto, req.user.id);
   }
 
   // 2. Send Offer Email
@@ -51,6 +49,19 @@ export class OffersController {
   @Post(':id/regenerate')
   regenerate(@Param('id') id: string) {
     return this.offersService.regeneratePdf(id);
+  }
+
+  // --- NEW: Request Approval ---
+  @Post(':id/request-approval')
+  requestApproval(@Param('id') id: string) {
+    return this.offersService.requestApproval(id);
+  }
+
+  // --- NEW: Approve Offer ---
+  @Post(':id/approve')
+  @UseGuards(JwtAuthGuard)
+  approve(@Param('id') id: string, @Request() req: any) {
+    return this.offersService.approve(id, req.user.id);
   }
 
   // 4. Candidate/Recruiter Updates Status (Accept/Decline)

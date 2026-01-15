@@ -50,10 +50,27 @@ export class ApplicationsProcessor extends WorkerHost {
       if (!application)
         throw new Error(`Application ${applicationId} not found`);
 
-      // 2. Parse CV (Refactored)
+      // 2. Parse CV (Refactored) or Use Existing Text
       let aiData: any = {};
       try {
-        aiData = await this.downloadAndParseResume(filePath);
+        if (filePath) {
+          aiData = await this.downloadAndParseResume(filePath);
+        } else if (application.candidate.resumeText) {
+          // Fallback: Use existing text from DB (e.g. from CSV import)
+          console.log(`ℹ️ No file path provided. Using existing resumeText for candidate ${application.candidateId}`);
+          aiData = {
+            raw_text: application.candidate.resumeText,
+            skills: [], // We rely on the text content
+            summary: 'Imported from CSV Data',
+            experience_years: application.candidate.experience || 0,
+            location: application.candidate.location,
+            education_level: application.candidate.education
+          };
+        } else {
+          console.warn(`⚠️ No file path and no resume text for application ${applicationId}. Skipping analysis.`);
+          return;
+        }
+
       } catch (error: any) {
         console.error('❌ AI Parsing Failed:', error.message);
 

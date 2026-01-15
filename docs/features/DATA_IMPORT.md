@@ -48,7 +48,7 @@ The importer automatically maps specific columns into the `metadata` JSON field 
 
 ## 2. The Import Workflow
 
-1.  **Upload:** The user uploads a CSV file via the Settings page (`/settings/import`).
+1.  **Upload:** The user uploads a CSV file via the "Import Candidates" link in the Sidebar.
 2.  **Analysis Phase:**
     *   The system scans the file *without* saving data.
     *   It identifies **Missing Job Titles**.
@@ -117,14 +117,19 @@ The system tries to find a `Job` in the database where `title` matches the CSV `
 
 To prevent database pollution, the importer uses specific strategies when it encounters existing data.
 
-### Scenario A: Exact Email Match
-If `john.doe@gmail.com` already exists:
-1.  **Profile Update:** The candidate's phone, name, and location are updated with the CSV data.
+### Scenario A: Strict Match (Email / LinkedIn)
+If `john.doe@gmail.com` already exists, or a matching LinkedIn URL is found:
+1.  **Profile Update:** The candidate's phone, name, and location are updated.
 2.  **Application Merge:**
     *   If an application for the *same job* exists: The metadata and resume are updated. The status is preserved.
     *   If it's a *new job*: A new application record is created.
 
-### Scenario B: AI Resume Parsing
+### Scenario B: Fuzzy Match (Name + Phone)
+If no email is found, but `LastName` and `Phone` (normalized to E.164) match an existing candidate:
+*   The system treats this as the **Same Candidate**.
+*   The record is updated (merged) rather than creating a duplicate.
+
+### Scenario C: AI Resume Parsing
 If a resume URL is provided, the system queues a **Background Job** (`process-application`) in Redis.
 *   This ensures the HTTP upload doesn't timeout while waiting for Python/Gemini to analyze thousands of PDFs.
 *   AI Parsing results (Skills, Experience Years) will populate asynchronously a few seconds/minutes after the import finishes.

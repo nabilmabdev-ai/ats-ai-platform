@@ -4,6 +4,7 @@ import { AppModule } from './app.module';
 import { join } from 'path';
 import * as fs from 'fs';
 import { ValidationPipe } from '@nestjs/common';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -22,6 +23,9 @@ async function bootstrap() {
       forbidNonWhitelisted: true,
     }),
   );
+
+  // Enable Global Exception Filter
+  app.useGlobalFilters(new HttpExceptionFilter());
 
   // Resolve the uploads directory relative to the project root (where package.json is)
   // rather than the dist folder.

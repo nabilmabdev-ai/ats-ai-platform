@@ -35,9 +35,11 @@ export default function JobCard({ job, onDuplicate }: { job: Job; onDuplicate?: 
   // 2. Premium Tag Styling (Pastel)
   const getPriorityColor = (p?: string) => {
     switch (p) {
-      case 'URGENT': return 'tag tag-primary'; // Pink
-      case 'HIGH': return 'tag tag-lilac'; // Lilac
-      default: return 'tag tag-neutral'; // Grey
+      case 'URGENT':
+      case 'HIGH':
+        return 'tag bg-orange-50 text-orange-700 border-orange-200'; // Orange for urgent
+      case 'MEDIUM': return 'tag bg-blue-50 text-blue-700 border-blue-200'; // Blue for normal
+      default: return 'tag bg-gray-50 text-gray-700 border-gray-200'; // Grey
     }
   };
 
@@ -48,12 +50,20 @@ export default function JobCard({ job, onDuplicate }: { job: Job; onDuplicate?: 
         {/* Header: Tags & Status */}
         <div className="flex justify-between items-center mb-[var(--space-4)]">
           <div className="flex gap-2">
+            {/* Priority Tag */}
             <span className={getPriorityColor(job.priority)}>
-              {job.priority || 'NORMAL'}
+              {job.priority === 'HIGH' ? 'URGENT' : (job.priority || 'NORMAL')}
             </span>
+            {/* Location/Remote Tag */}
             {job.remoteType && (
-              <span className="tag tag-blue">
+              <span className="tag bg-green-50 text-green-700 border-green-200">
                 {job.remoteType}
+              </span>
+            )}
+            {/* Department Tag (Extra) */}
+            {job.department && (
+              <span className="tag bg-indigo-50 text-indigo-700 border-indigo-200 hidden xl:inline-block">
+                {job.department}
               </span>
             )}
           </div>
@@ -69,7 +79,7 @@ export default function JobCard({ job, onDuplicate }: { job: Job; onDuplicate?: 
             <span className="text-[10px] font-bold uppercase tracking-wider opacity-80">{job.department || 'Engineering'}</span>
           </div>
 
-          <h3 className="text-h3 text-[var(--color-text-dark)] group-hover:text-[var(--color-primary)] transition-colors line-clamp-1 mb-2">
+          <h3 className="text-h3 text-[var(--color-text-dark)] group-hover:text-[var(--color-primary)] transition-colors line-clamp-2 mb-2 h-[4.5rem]">
             {job.title}
           </h3>
 

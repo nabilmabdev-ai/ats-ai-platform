@@ -13,8 +13,11 @@ import {
   Query,
   ParseIntPipe,
   UploadedFiles,
-  NotFoundException, // Add this
+  NotFoundException,
+  UseGuards,
+  Request,
 } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { ApplicationsService } from './applications.service';
 import { diskStorage } from 'multer';
@@ -111,6 +114,7 @@ export class ApplicationsController {
       name: string;
       phone?: string;
       knockoutAnswers?: string;
+      source?: string; // [NEW] Capture source
     },
   ) {
     if (!files || !files.resume || files.resume.length === 0) {
@@ -137,6 +141,7 @@ export class ApplicationsController {
         name: body.name,
         phone: body.phone,
         knockoutAnswers: answers,
+        source: body.source,
       },
       {
         resume: resumeFile.path,
@@ -153,6 +158,7 @@ export class ApplicationsController {
     @Query('limit', new ParseIntPipe({ optional: true })) limit: number = 10,
     @Query('includeClosed') includeClosed?: string,
     @Query('search') search?: string,
+    @Query('ownerId') ownerId?: string, // [NEW]
   ) {
     const showClosed = includeClosed === 'true';
     return this.applicationsService.findAll(
@@ -162,6 +168,7 @@ export class ApplicationsController {
       limit,
       showClosed,
       search,
+      ownerId,
     );
   }
 
@@ -179,12 +186,21 @@ export class ApplicationsController {
     return this.applicationsService.findOne(id);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Patch(':id/status')
   updateStatus(
     @Param('id') id: string,
     @Body() updateDto: UpdateApplicationStatusDto,
+    @Request() req,
   ) {
-    return this.applicationsService.updateStatus(id, updateDto.status);
+    return this.applicationsService.updateStatus(
+      id,
+      updateDto.status,
+      updateDto.reason,
+      updateDto.notes,
+      req.user?.role,
+      req.user?.id,
+    );
   }
 
   @Post(':id/generate-rejection')
@@ -215,5 +231,16 @@ export class ApplicationsController {
   @HttpCode(HttpStatus.OK)
   reprocess(@Param('id') id: string) {
     return this.applicationsService.reprocessApplication(id);
+  }
+
+  @Patch(':id/owner')
+  @UseGuards(JwtAuthGuard)
+  assignOwner(
+    @Param('id') id: string,
+    @Body('ownerId') ownerId: string,
+    @Request() req,
+  ) {
+    if (!ownerId) throw new BadRequestException('ownerId is required');
+    return this.applicationsService.assignOwner(id, ownerId, req.user.id);
   }
 }

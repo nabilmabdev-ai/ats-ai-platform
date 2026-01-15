@@ -1,6 +1,6 @@
 // --- Content from: apps/backend-core/src/jobs/jobs.service.ts ---
 
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
@@ -10,15 +10,19 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import * as Handlebars from 'handlebars';
 import { JobStatus, AppStatus } from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class JobsService {
+  private readonly logger = new Logger(JobsService.name);
+
   constructor(
     private prisma: PrismaService,
     private httpService: HttpService,
     private configService: ConfigService,
     private emailService: EmailService,
-  ) {}
+    private notificationsService: NotificationsService,
+  ) { }
 
   // --- Fetch Templates for Frontend ---
   async getJobTemplates() {
@@ -111,7 +115,7 @@ export class JobsService {
       );
 
       if (templateId && templateStructure) {
-        console.log(`🔮 Rendering Template for Region: ${region}`);
+        this.logger.log(`🔮 Rendering Template for Region: ${region}`);
 
         const respBullets = Array.isArray(aiData.responsibilities)
           ? aiData.responsibilities.map((r: string) => `- ${r}`).join('\n')
@@ -144,14 +148,14 @@ export class JobsService {
       if (error.response) {
         // The request was made and the server responded with a status code
         // that falls out of the range of 2xx
-        console.error('AI Service Error Response Data:', error.response.data);
-        console.error('AI Service Error Status:', error.response.status);
+        this.logger.error('AI Service Error Response Data:', error.response.data);
+        this.logger.error('AI Service Error Status:', error.response.status);
       } else if (error.request) {
         // The request was made but no response was received
-        console.error('AI Service No Response:', error.request);
+        this.logger.error('AI Service No Response:', error.request);
       } else {
         // Something happened in setting up the request that triggered an Error
-        console.error('AI Service Setup Error:', error.message);
+        this.logger.error('AI Service Setup Error:', error.message);
       }
 
       throw new Error('AI Service unavailable or returned an error');
@@ -210,18 +214,18 @@ export class JobsService {
     } catch (error: any) {
       // Improved Error Logging for matchCandidates
       if (error.response) {
-        console.error(
+        this.logger.error(
           'AI Matching Service Error Response Data:',
           error.response.data,
         );
-        console.error(
+        this.logger.error(
           'AI Matching Service Error Status:',
           error.response.status,
         );
       } else if (error.request) {
-        console.error('AI Matching Service No Response:', error.request);
+        this.logger.error('AI Matching Service No Response:', error.request);
       } else {
-        console.error('AI Matching Service Setup Error:', error.message);
+        this.logger.error('AI Matching Service Setup Error:', error.message);
       }
       return [];
     }
@@ -299,7 +303,7 @@ export class JobsService {
     // [SILVER MEDALIST] Auto-source candidates
     // We run this in background (no await) so we don't block the response
     this.autoSourceSilverMedalists(newJob.id).catch((err) =>
-      console.error('[SilverMedalist] Error in background task:', err),
+      this.logger.error('[SilverMedalist] Error in background task:', err),
     );
 
     return newJob;
@@ -420,7 +424,7 @@ export class JobsService {
 
     const skip = (page - 1) * limit;
 
-    const [jobs, total] = await this.prisma.$transaction([
+    const [jobs, total] = await Promise.all([
       this.prisma.job.findMany({
         where,
         skip,
@@ -453,9 +457,9 @@ export class JobsService {
     });
   }
 
-  async update(id: string, updateJobDto: UpdateJobDto) {
+  async update(id: string, updateJobDto: UpdateJobDto, userId?: string) {
     // 1. Fetch existing job to get current values
-    const existingJob = await this.prisma.job.findUnique({ where: { id } });
+    const existingJob = await this.prisma.job.findUnique({ where: { id }, include: { approvedBy: true } });
     if (!existingJob) throw new NotFoundException('Job not found');
 
     // 2. Merge existing data with update data for validation
@@ -470,18 +474,58 @@ export class JobsService {
 
     // 3. Validate Salary Range
     if (salaryMin !== null && salaryMax !== null && salaryMax <= salaryMin) {
-      throw new NotFoundException('Salary Max must be greater than Salary Min'); // Using NotFound to match existing error style or BadRequest
-      // Ideally this should be BadRequestException but importing it might require adding to imports.
-      // Let's check imports. NotFoundException is imported.
+      throw new NotFoundException('Salary Max must be greater than Salary Min');
     }
 
     const { status, ...rest } = updateJobDto;
     const data: any = { ...rest };
-    if (status) {
+
+    // --- NEW: State Guardrails ---
+    if (status) { // If status is changing
+      // Case A: Moving to PENDING_APPROVAL
+      if (status === JobStatus.PENDING_APPROVAL && existingJob.status !== JobStatus.PENDING_APPROVAL) {
+        // Notify Admins (Future: Loop through ADMIN users. For now, we rely on the implementation plan's simplicity)
+        // We will just log it for now as we don't have an "Admin Group" concept easily accessible without a query
+        this.logger.log(`Job ${id} moved to PENDING_APPROVAL`);
+
+        // Find Admins to notify
+        const admins = await this.prisma.user.findMany({ where: { role: 'ADMIN' } });
+        for (const admin of admins) {
+          await this.notificationsService.create(
+            admin.id,
+            'ACTION_REQUIRED',
+            `Job "${existingJob.title}" needs approval.`,
+            `/vacancies/${id}`
+          );
+        }
+      }
+
+      // Case B: Moving to PUBLISHED
+      if (status === JobStatus.PUBLISHED && existingJob.status !== JobStatus.PUBLISHED) {
+        // Enforce Approval Logic Side-Effects
+        data.approvedById = userId; // The user triggering the publish is effectively the approver
+        data.approvedAt = new Date();
+        data.distribution = {
+          linkedin: { status: 'POSTED', timestamp: new Date() },
+          indeed: { status: 'POSTED', timestamp: new Date() },
+          glassdoor: { status: 'PENDING_REVIEW', timestamp: new Date() },
+        };
+
+        // Notify the Hiring Manager if it wasn't them who published it
+        if (existingJob.hiringManagerId && existingJob.hiringManagerId !== userId) {
+          await this.notificationsService.create(
+            existingJob.hiringManagerId,
+            'SUCCESS',
+            `Your job "${existingJob.title}" is now Live!`,
+            `/vacancies/${id}`
+          );
+        }
+      }
+
       data.status = status as JobStatus;
     }
 
-    return this.prisma.job.update({ where: { id }, data });
+    return this.prisma.job.update({ where: { id }, data, include: { approvedBy: true } });
   }
 
   remove(id: string) {
@@ -504,7 +548,7 @@ export class JobsService {
     const job = await this.prisma.job.findUnique({ where: { id: jobId } });
     if (!job) return;
 
-    console.log(`[SilverMedalist] Auto-sourcing for job: ${job.title}`);
+    this.logger.log(`[SilverMedalist] Auto-sourcing for job: ${job.title}`);
 
     // 1. Get AI Matches
     const queryText = `
@@ -526,7 +570,7 @@ export class JobsService {
       );
       matches = data.matches || [];
     } catch (e) {
-      console.error('[SilverMedalist] AI Match failed', e);
+      this.logger.error('[SilverMedalist] AI Match failed', e);
       return;
     }
 
@@ -562,7 +606,7 @@ export class JobsService {
       return hasRejection && !isHired && !appliedToThisJob;
     });
 
-    console.log(
+    this.logger.log(
       `[SilverMedalist] Found ${silverMedalists.length} candidates from ${matches.length} matches.`,
     );
 
@@ -576,7 +620,7 @@ export class JobsService {
         job.title,
         job.id,
       );
-      console.log(
+      this.logger.log(
         `[SilverMedalist] Sent invitation to candidate ${candidate.id} for job ${jobId}`,
       );
     }

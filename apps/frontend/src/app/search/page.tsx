@@ -78,7 +78,7 @@ export default function SearchPage() {
     fetchJobs();
   }, []);
 
-  const performSearch = useCallback(async (isLoadMore = false) => {
+  const performSearch = useCallback(async (isLoadMore = false, overrides?: { query?: string, filters?: SearchFilters }) => {
     if (!isLoadMore) {
       setLoading(true);
       setHasSearched(true);
@@ -92,24 +92,36 @@ export default function SearchPage() {
       const currentPage = isLoadMore ? page + 1 : 1;
       const params = new URLSearchParams();
 
+      // Use overrides if provided, else use state
+      const effectiveQuery = overrides && overrides.query !== undefined ? overrides.query : query;
+      const effectiveFilters = overrides && overrides.filters ? overrides.filters : filters;
+
       // Common Params
-      if (query) params.append('q', query);
-      if (filters.location) params.append('location', filters.location);
-      if (filters.minExp) params.append('minExp', filters.minExp);
-      if (filters.keywords) params.append('keywords', filters.keywords);
+      if (effectiveQuery) params.append('q', effectiveQuery);
+      if (effectiveFilters.location) params.append('location', effectiveFilters.location);
+      if (effectiveFilters.minExp) params.append('minExp', effectiveFilters.minExp);
+      if (effectiveFilters.keywords) params.append('keywords', effectiveFilters.keywords);
 
       // Database Params
-      if (filters.jobId) params.append('jobId', filters.jobId);
-      if (filters.status) params.append('status', filters.status);
-      if (filters.fromDate) params.append('fromDate', filters.fromDate);
-      if (filters.toDate) params.append('toDate', filters.toDate);
-      if (filters.tags) params.append('tags', filters.tags);
+      if (effectiveFilters.jobId) params.append('jobId', effectiveFilters.jobId);
+      if (effectiveFilters.status) params.append('status', effectiveFilters.status);
+      if (effectiveFilters.fromDate) params.append('fromDate', effectiveFilters.fromDate);
+      if (effectiveFilters.toDate) params.append('toDate', effectiveFilters.toDate);
+      if (effectiveFilters.tags) params.append('tags', effectiveFilters.tags);
 
       params.append('page', currentPage.toString());
       params.append('limit', PAGE_SIZE.toString());
 
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/candidates/search?${params.toString()}`);
-      const rawData = await res.json() as Candidate[];
+      const responseData = await res.json();
+
+      let rawData: Candidate[] = [];
+      if (Array.isArray(responseData)) {
+        rawData = responseData;
+      } else if (responseData.data && Array.isArray(responseData.data)) {
+        rawData = responseData.data;
+      }
+
       const data = Array.from(new Map(rawData.map((item: Candidate) => [item.id, item])).values());
 
       if (isLoadMore) {
@@ -143,6 +155,38 @@ export default function SearchPage() {
   }, [performSearch]);
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+
+  // Reset filters when switching tabs to prevent state leaking
+  useEffect(() => {
+    const defaultFilters = {
+      location: '',
+      minExp: '',
+      keywords: '',
+      relocation: false,
+      jobId: '',
+      status: '',
+      fromDate: '',
+      toDate: '',
+      tags: ''
+    };
+
+    // Reset Query
+    setQuery('');
+
+    // Reset Filters to default
+    setFilters(defaultFilters);
+
+    // Reset Pagination & Results
+    setPage(1);
+    setResults([]);
+    setHasSearched(false);
+    setHasMore(false);
+
+    // If switching to Database tab, trigger an immediate search with default filters
+    if (activeTab === 'database') {
+      performSearch(false, { query: '', filters: defaultFilters });
+    }
+  }, [activeTab]);
 
   const loadMore = useCallback(() => {
     performSearch(true);

@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from './AuthProvider';
+
 
 interface SmartScheduleModalProps {
     isOpen: boolean;
@@ -18,11 +20,14 @@ interface CandidatePreview {
 }
 
 export default function SmartScheduleModal({ isOpen, onClose }: SmartScheduleModalProps) {
+    const { user } = useAuth();
     const [loading, setLoading] = useState(false);
     const [fetching, setFetching] = useState(false);
     const [candidates, setCandidates] = useState<CandidatePreview[]>([]);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [customMessage, setCustomMessage] = useState('');
     const [result, setResult] = useState<{ totalFound: number; sentCount: number; errors: any[] } | null>(null);
+
 
     useEffect(() => {
         if (isOpen) {
@@ -53,9 +58,14 @@ export default function SmartScheduleModal({ isOpen, onClose }: SmartScheduleMod
             const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/interviews/smart-schedule-run`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ applicationIds: Array.from(selectedIds) }),
+                body: JSON.stringify({
+                    applicationIds: Array.from(selectedIds),
+                    userId: user?.id,
+                    customMessage
+                }),
             });
             const data = await res.json();
+
             setResult(data);
             // Refresh list after run
             if (data.sentCount > 0) {
@@ -120,14 +130,14 @@ export default function SmartScheduleModal({ isOpen, onClose }: SmartScheduleMod
                                     <p className="text-sm">No candidates need scheduling right now.</p>
                                 </div>
                             ) : (
-                                <div>
+                                <>
                                     <div className="flex justify-between items-center mb-3">
                                         <h4 className="font-medium text-[var(--color-text-dark)]">Candidates ({candidates.length})</h4>
                                         <button onClick={toggleAll} className="text-xs font-medium text-[var(--color-primary)] hover:underline">
                                             {selectedIds.size === candidates.length ? 'Deselect All' : 'Select All'}
                                         </button>
                                     </div>
-                                    <div className="border border-[var(--color-border)] rounded-lg divide-y divide-[var(--color-border)]">
+                                    <div className="border border-[var(--color-border)] rounded-lg divide-y divide-[var(--color-border)] max-h-48 overflow-y-auto mb-4">
                                         {candidates.map(c => (
                                             <div key={c.id} className="p-3 flex items-center hover:bg-[var(--color-neutral-50)] transition-colors">
                                                 <input
@@ -143,8 +153,42 @@ export default function SmartScheduleModal({ isOpen, onClose }: SmartScheduleMod
                                             </div>
                                         ))}
                                     </div>
-                                </div>
+
+                                    <div className="mb-4">
+                                        <label className="block text-sm font-medium text-[var(--color-text-dark)] mb-2">Email Preview</label>
+                                        <div className="bg-white border border-[var(--color-border)] rounded-lg p-4 text-sm text-[var(--color-text-dark)] shadow-sm">
+                                            <div className="border-b border-gray-100 pb-2 mb-2">
+                                                <span className="text-gray-500">Subject:</span> <span className="font-medium">Interview Invitation: [Job Title]</span>
+                                            </div>
+                                            <div className="space-y-2 text-gray-600">
+                                                <p>Hi [Candidate Name],</p>
+                                                {customMessage ? (
+                                                    <p className="p-2 bg-blue-50 border-l-2 border-blue-400 italic text-blue-900 my-2 rounded-r">
+                                                        "{customMessage}"
+                                                    </p>
+                                                ) : (
+                                                    <p className="text-gray-400 italic">[Your custom message will appear here]</p>
+                                                )}
+                                                <p>We've reviewed your profile and would like to invite you to an interview.</p>
+                                                <p>Please book your interview here: <span className="text-blue-600 underline font-medium cursor-pointer">Select Interview Time</span></p>
+                                                <p className="pt-2 text-xs text-gray-400">Best regards,<br />The Hiring Team</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-[var(--color-text-dark)] mb-1">Custom Message (Optional)</label>
+                                        <textarea
+                                            value={customMessage}
+                                            onChange={(e) => setCustomMessage(e.target.value)}
+                                            placeholder="e.g. 'I was impressed by your portfolio...'"
+                                            className="w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-sm focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
+                                            rows={2}
+                                        />
+                                    </div>
+                                </>
                             )}
+
                         </>
                     ) : (
                         <div className="space-y-4">
@@ -195,7 +239,7 @@ export default function SmartScheduleModal({ isOpen, onClose }: SmartScheduleMod
                         </button>
                     )}
                 </div>
-            </div>
-        </div>
+            </div >
+        </div >
     );
 }

@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { HttpService } from '@nestjs/axios';
 import { SearchService } from '../search/search.service';
 import { getQueueToken } from '@nestjs/bullmq';
+import { DeduplicationService } from '../deduplication/deduplication.service';
 
 const mockPrismaService = {
   candidate: {
@@ -50,6 +51,7 @@ describe('CandidatesService', () => {
         { provide: HttpService, useValue: mockHttpService },
         { provide: SearchService, useValue: mockSearchService },
         { provide: getQueueToken('applications'), useValue: mockQueue },
+        { provide: DeduplicationService, useValue: { normalizePhone: jest.fn((p) => p) } },
       ],
     }).compile();
 

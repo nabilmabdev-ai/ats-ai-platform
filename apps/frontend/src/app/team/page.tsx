@@ -39,7 +39,10 @@ export default function TeamPage() {
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/users`);
+      const token = localStorage.getItem('access_token');
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/users`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
       if (res.ok) {
         const data = await res.json();
         setUsers(data);
@@ -61,9 +64,13 @@ export default function TeamPage() {
 
       if (password) body.password = password; // Only send password if provided (always required for create, optional for update)
 
+      const token = localStorage.getItem('access_token');
       const res = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify(body),
       });
 
@@ -119,7 +126,7 @@ export default function TeamPage() {
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Team Management</h1>
             <p className="text-gray-500 mt-1">Manage users and their roles.</p>
           </div>
-          {currentUser?.role === 'ADMIN' && (
+          {['ADMIN', 'MANAGER'].includes(currentUser?.role || '') && (
             <button onClick={openCreateModal} className="btn-primary">
               + Add User
             </button>

@@ -34,8 +34,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const storedToken = localStorage.getItem('access_token');
     const storedUser = localStorage.getItem('user_info');
 
-    if (storedToken) setToken(storedToken);
-    if (storedUser) setUser(JSON.parse(storedUser));
+    if (storedToken) {
+      setToken(storedToken);
+    } else {
+      // Clear cookie if no token in storage to prevent middleware loops
+      document.cookie = `token=; path=/; max-age=0;`;
+    }
+
+    if (storedUser) {
+      try {
+        setUser(JSON.parse(storedUser));
+      } catch (e) {
+        console.error('Failed to parse user info', e);
+        localStorage.removeItem('user_info');
+      }
+    }
   }, []);
 
   // Only run redirection logic when token or pathname changes
@@ -82,7 +95,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     safePathname.includes('/thank-you');
 
   if (!isPublicRoute && !token) {
-    return null; // Or a loading spinner while redirecting
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-[var(--color-background)]">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-[var(--color-primary)] border-t-transparent"></div>
+          <p className="text-sm font-medium text-[var(--color-text-soft)]">Loading...</p>
+          <a
+            href="/login"
+            onClick={() => document.cookie = 'token=; path=/; max-age=0;'}
+            className="text-xs text-[var(--color-primary)] underline mt-4 hover:text-[var(--color-primary-hover)]"
+          >
+            Stranded? Go to Login
+          </a>
+        </div>
+      </div>
+    );
   }
 
   return (

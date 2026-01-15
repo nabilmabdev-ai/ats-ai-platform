@@ -16,12 +16,30 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
-import { CandidatesService } from './candidates.service';
+import { CandidatesService, MergeStrategy } from './candidates.service';
 import { Delete } from '@nestjs/common';
+
+export class CreateCandidateDto {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone?: string;
+  linkedinUrl?: string;
+  location?: string;
+  jobId?: string;
+  resumeS3Key?: string;
+  resumeText?: string;
+}
+
+export class MergeCandidateDto {
+  primaryId: string;
+  secondaryId: string;
+  strategy?: MergeStrategy;
+}
 
 @Controller('candidates')
 export class CandidatesController {
-  constructor(private readonly candidatesService: CandidatesService) {}
+  constructor(private readonly candidatesService: CandidatesService) { }
 
   @Get('search')
   async search(
@@ -38,7 +56,7 @@ export class CandidatesController {
     @Query('limit', new ParseIntPipe({ optional: true })) limit: number = 10,
   ) {
     // Pass all filters to the service
-    return this.candidatesService.search({
+    const result = await this.candidatesService.search({
       q,
       location,
       minExp: minExp ? parseInt(minExp) : undefined,
@@ -51,11 +69,36 @@ export class CandidatesController {
       page,
       limit,
     });
+
+    return {
+      data: result.data,
+      meta: {
+        total: result.total,
+        page,
+        limit,
+        totalPages: Math.ceil(result.total / limit),
+      }
+    };
   }
 
   @Patch(':id')
   async update(@Param('id') id: string, @Body() body: Record<string, any>) {
-    return this.candidatesService.update(id, body);
+    try {
+      // TODO: Pass userId from request when Auth guard is fully integrated/typed here
+      // const userId = req.user?.id; 
+      return await this.candidatesService.update(id, body);
+    } catch (error: any) {
+      if (error.code === 'DUPLICATE_EMAIL') {
+        throw new BadRequestException({
+          message: 'Duplicate email found',
+          code: 'DUPLICATE_EMAIL',
+          conflictCandidateId: error.conflictCandidateId
+        });
+        // Alternatively, use ConflictException
+        // throw new ConflictException(...)
+      }
+      throw error;
+    }
   }
 
   @Delete(':id')
@@ -63,9 +106,14 @@ export class CandidatesController {
     return this.candidatesService.remove(id);
   }
 
+  @Post('check-duplicity')
+  async checkDuplicity(@Body() body: { name?: string; email?: string; phone?: string }) {
+    return this.candidatesService.checkDuplicity(body);
+  }
+
   @Post('merge')
   async merge(
-    @Body() body: { primaryId: string; secondaryId: string; strategy?: any },
+    @Body() body: MergeCandidateDto,
   ) {
     return this.candidatesService.mergeCandidates(
       body.primaryId,
@@ -79,7 +127,7 @@ export class CandidatesController {
     return this.candidatesService.triggerFullReindex();
   }
   @Post()
-  async create(@Body() body: any) {
+  async create(@Body() body: CreateCandidateDto) {
     return this.candidatesService.createCandidate(body);
   }
 
@@ -107,7 +155,7 @@ export class CandidatesController {
       },
     }),
   )
-  async upload(@UploadedFile() file: any, @Body() body: any) {
+  async upload(@UploadedFile() file: any, @Body() body: CreateCandidateDto) {
     if (!file) throw new BadRequestException('File is required');
     return this.candidatesService.createCandidate({
       ...body,

@@ -1,10 +1,11 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { CandidatesController } from './candidates.controller';
 import { CandidatesService } from './candidates.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { BullModule } from '@nestjs/bullmq';
 import { SearchModule } from '../search/search.module';
+import { DeduplicationModule } from '../deduplication/deduplication.module';
 
 @Module({
   imports: [
@@ -14,8 +15,10 @@ import { SearchModule } from '../search/search.module';
       name: 'applications',
     }),
     SearchModule,
+    forwardRef(() => DeduplicationModule),
   ],
   controllers: [CandidatesController],
   providers: [CandidatesService],
+  exports: [CandidatesService],
 })
-export class CandidatesModule {}
+export class CandidatesModule { }

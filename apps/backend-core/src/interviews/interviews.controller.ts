@@ -8,6 +8,7 @@ import {
   ParseIntPipe,
   ParseDatePipe,
   Patch,
+  Req,
 } from '@nestjs/common';
 import { InterviewsService } from './interviews.service';
 import { CreateInterviewDto } from './dto/create-interview.dto';
@@ -24,8 +25,9 @@ export class InterviewsController {
     @Query('page', new ParseIntPipe({ optional: true })) page: number = 1,
     @Query('limit', new ParseIntPipe({ optional: true })) limit: number = 10,
     @Query('startDate', new ParseDatePipe({ optional: true })) startDate?: Date,
+    @Query('search') search?: string,
   ) {
-    return this.interviewsService.findAll(page, limit, startDate);
+    return this.interviewsService.findAll(page, limit, startDate, search);
   }
 
   @Patch(':id/notes')
@@ -87,12 +89,38 @@ export class InterviewsController {
   }
 
   @Post('smart-schedule-run')
-  runSmartSchedule(@Body() body: { applicationIds?: string[] }) {
-    return this.interviewsService.runSmartSchedule(body.applicationIds);
+  runSmartSchedule(@Body() body: { applicationIds?: string[]; userId?: string; customMessage?: string }) {
+    return this.interviewsService.runSmartSchedule(body.applicationIds, body.userId, body.customMessage);
   }
+
 
   @Post(':id/decision')
   processDecision(@Param('id') id: string, @Body() body: { decision: 'ADVANCE' | 'REJECT' }) {
     return this.interviewsService.processDecision(id, body.decision);
   }
+
+  @Get('availability')
+  getAvailability(
+    @Query('interviewerId') interviewerId: string,
+    @Query('start') start: string,
+    @Query('end') end: string,
+  ) {
+    return this.interviewsService.getAvailability(interviewerId || '', new Date(start), new Date(end));
+  }
+
+  @Patch(':id/status')
+  updateStatus(@Param('id') id: string, @Body() body: { status: 'CONFIRMED' | 'CANCELLED' }) {
+    return this.interviewsService.updateStatus(id, body.status);
+  }
+
+  @Patch(':id/interviewer')
+  assignInterviewer(
+    @Param('id') id: string,
+    @Body() body: { interviewerId: string },
+    @Req() req: any
+  ) {
+    // Assuming req.user is populated by AuthGuard
+    return this.interviewsService.assignInterviewer(id, body.interviewerId, req.user?.id);
+  }
 }
+

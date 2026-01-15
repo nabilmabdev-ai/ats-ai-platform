@@ -1,36 +1,82 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ATS AI Platform - Frontend
 
-## Getting Started
+The frontend application for the HT Recruitment OS, built with **Next.js 16 (App Router)** and **Tailwind CSS v4**. It provides a responsive, interactive interface for recruiters to manage candidates, jobs, and offers.
 
-First, run the development server:
+## 🛠️ Tech Stack
+
+*   **Framework**: Next.js 16 (App Router)
+*   **Styling**: Tailwind CSS v4, Lucide React (Icons)
+*   **State/Data Fetching**: SWR (Stale-While-Revalidate)
+*   **Drag & Drop**: `@hello-pangea/dnd` (Pipeline Board)
+*   **Calendar**: `react-big-calendar`
+*   **Charts**: `recharts`
+*   **Error Handling**: Global `ErrorBoundary` to prevent white-screen crashes.
+
+## 🚀 Key Features
+
+*   **📊 Dashboard (New!)**: A comprehensive view of recruitment metrics including Active Jobs, Total Candidates, and Scheduled Interviews, powered by `DashboardHeader` and `StatsGrid` components.
+*   **Candidate Management**:
+    *   **Talent Pool**: Centralized database view in `/search` to manage all candidates.
+    *   **Add Candidate**: Modal for manual candidate creation and resume upload.
+    *   **Standardized API**: Updated to handle standardized `{ data, meta }` responses.
+*   **📋 Pipeline Board**: Kanban-style drag-and-drop board for moving candidates through stages (Sourced -> Interview -> Offer). Support for "Backward Move" (demoting candidates).
+*   **🤝 Offer Management**: Dedicated "Offer" tab in Applicant view to generate, send, and track offer letters.
+*   **📅 Scheduling**: Interactive calendar for managing interviews with conflict detection.
+*   **🔍 Advanced Search**: Interface for Hybrid Search (Keyword + Semantic) to find "Silver Medalist" candidates.
+*   **🩺 CVthèque Doctor**: Duplicate candidate resolution dashboard with side-by-side comparison and smart merging.
+
+## 🏃‍♂️ Getting Started
+
+### Prerequisites
+*   Node.js v20+
+*   Backend Core running on port 3001
+
+### Installation
+
+```bash
+# Navigate to frontend directory
+cd apps/frontend
+
+# Install dependencies
+npm install
+```
+
+### Configuration
+
+Create a `.env.local` file:
+
+```ini
+NEXT_PUBLIC_API_URL="http://localhost:3001"
+```
+
+### Running Locally
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# App will leverage http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 📂 Project Structure
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+src/
+├── app/              # App Router pages and layouts
+│   ├── candidates/   # Candidate management pages
+│   ├── dashboard/    # Main dashboard
+│   ├── jobs/         # Job posting management
+│   ├── settings/     # Company & User settings
+│   └── ...
+├── components/       # Reusable UI components
+│   ├── ui/           # Design system primitives (Buttons, Inputs)
+│   ├── PipelineBoard.tsx # Kanban board logic
+│   └── OfferManager.tsx  # Offer workflow component
+├── lib/              # Utilities (API client, helpers)
+└── services/         # API service wrappers (auth, candidates, etc.)
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 🧪 Testing
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+# Run linting
+npm run lint
+```

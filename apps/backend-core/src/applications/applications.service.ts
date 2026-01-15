@@ -3,6 +3,7 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import axios from 'axios';
@@ -11,6 +12,8 @@ import FormData from 'form-data';
 import { AppStatus } from '@prisma/client';
 import { EmailService } from '../email/email.service';
 import { InterviewsService } from '../interviews/interviews.service';
+import { OffersService } from '../offers/offers.service';
+import { Role, User, OfferStatus } from '@prisma/client';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import {
@@ -19,6 +22,8 @@ import {
   BulkStatusDto,
   BulkTagDto,
 } from './dto/bulk-action.dto';
+import { DeduplicationService } from '../deduplication/deduplication.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class ApplicationsService {
@@ -26,8 +31,13 @@ export class ApplicationsService {
     private prisma: PrismaService,
     private emailService: EmailService,
     private interviewsService: InterviewsService,
+    private deduplicationService: DeduplicationService,
+    private offersService: OffersService,
+    private notificationsService: NotificationsService,
     @InjectQueue('applications') private applicationsQueue: Queue,
   ) { }
+
+  private readonly logger = new Logger(ApplicationsService.name);
 
   async retryFailedParsings() {
     // 1. Find all applications marked with error
@@ -112,7 +122,10 @@ export class ApplicationsService {
     // 1. Update status for all applications
     const updatedCount = await this.prisma.application.updateMany({
       where: { id: { in: applicationIds } },
-      data: { status: 'REJECTED' },
+      data: {
+        status: 'REJECTED',
+        rejectionReason: reason // [NEW] Save rejection reason
+      },
     });
 
     // 2. If sendEmail is false, we're done
@@ -140,7 +153,7 @@ export class ApplicationsService {
             body,
           );
         } catch (error) {
-          console.error(
+          this.logger.error(
             `Failed to send rejection email to ${app.candidate.email} for application ${app.id}:`,
             error,
           );
@@ -148,22 +161,61 @@ export class ApplicationsService {
       }),
     );
 
+    // 5. Log History for Rejected Apps
+    const historyEntries = applicationsToNotify
+      .filter((app) => app.status !== 'REJECTED')
+      .map((app) => ({
+        applicationId: app.id,
+        fromStatus: app.status,
+        toStatus: AppStatus.REJECTED,
+        reason: reason,
+      }));
+
+    if (historyEntries.length > 0) {
+      await this.prisma.applicationHistory.createMany({
+        data: historyEntries,
+      });
+    }
+
     return { count: updatedCount.count };
   }
 
   async bulkUpdateStatus(bulkStatusDto: BulkStatusDto) {
     const { applicationIds, status } = bulkStatusDto;
+
+    // 1. Fetch current apps to determine history
+    const apps = await this.prisma.application.findMany({
+      where: { id: { in: applicationIds } },
+      select: { id: true, status: true },
+    });
+
+    // 2. Perform Bulk Update
     const result = await this.prisma.application.updateMany({
       where: { id: { in: applicationIds } },
       data: { status },
     });
+
+    // 3. Log History
+    const historyEntries = apps
+      .filter((app) => app.status !== status)
+      .map((app) => ({
+        applicationId: app.id,
+        fromStatus: app.status,
+        toStatus: status,
+      }));
+
+    if (historyEntries.length > 0) {
+      await this.prisma.applicationHistory.createMany({
+        data: historyEntries,
+      });
+    }
 
     if (status === AppStatus.INTERVIEW) {
       for (const id of applicationIds) {
         try {
           await this.interviewsService.triggerInvite(id);
         } catch (error) {
-          console.error(
+          this.logger.error(
             `Failed to trigger interview invite for app ${id}:`,
             error.message,
           );
@@ -181,6 +233,7 @@ export class ApplicationsService {
       name: string;
       phone?: string;
       knockoutAnswers?: Record<string, any>; // <--- NEW INPUT
+      source?: string; // [NEW] Capture source
     },
     files: { resume: string; coverLetter?: string },
   ) {
@@ -230,7 +283,7 @@ export class ApplicationsService {
           if (answerToCheck !== correctToCheck) {
             isAutoRejected = true;
             initialStatus = 'REJECTED';
-            console.log(
+            this.logger.log(
               `🚫 Auto-rejecting ${data.email} due to failed KO question: ${q.text}`,
             );
             break;
@@ -239,96 +292,78 @@ export class ApplicationsService {
       }
     }
 
-    // 2. Check for Existing Candidate (Exact & Fuzzy)
+    // 2. Check for Existing Candidate (Exact & Fuzzy via DeduplicationService)
     let candidateId: string | null = null;
 
-    // A. Exact Email Match
-    const exactMatch = await this.prisma.candidate.findUnique({
-      where: { email: data.email },
+    const dedupResult = await this.deduplicationService.findMatch({
+      email: data.email,
+      phone: data.phone,
+      name: data.name,
     });
 
-    if (exactMatch) {
-      candidateId = exactMatch.id;
-    } else {
-      // B. Fuzzy Match (if enabled)
-      const company = await this.prisma.company.findFirst();
-      if (company?.enableAutoMerge && data.name && data.phone) {
-        // Normalize Phone: remove all non-digits
-        const normalizedInputPhone = data.phone.replace(/\D/g, '');
-        const lastName = data.name.split(' ')[1] || '';
-
-        if (normalizedInputPhone.length > 6 && lastName.length > 2) {
-          const candidates = await this.prisma.candidate.findMany({
-            where: {
-              lastName: { equals: lastName, mode: 'insensitive' },
-            },
-          });
-
-          const match = candidates.find((c) => {
-            if (!c.phone) return false;
-            const p = c.phone.replace(/\D/g, '');
-            return p === normalizedInputPhone;
-          });
-
-          if (match) {
-            console.log(
-              `🔗 Fuzzy Match Found: ${data.email} linked to ${match.email}`,
-            );
-            candidateId = match.id;
-          }
-        }
+    if (dedupResult.matchFound) {
+      candidateId = dedupResult.candidateId || null;
+      if (dedupResult.strategyUsed !== 'EMAIL') {
+        this.logger.log(
+          `🔗 Fuzzy Match Found: ${data.email} linked to candidate ${candidateId} (Strategy: ${dedupResult.strategyUsed})`,
+        );
       }
     }
 
-    // 3. Create or Update Candidate
-    let candidate;
-    if (candidateId) {
-      candidate = await this.prisma.candidate.update({
-        where: { id: candidateId },
-        data: {
-          firstName: data.name.split(' ')[0],
-          lastName: data.name.split(' ')[1] || '',
-          resumeS3Key: files.resume,
-          lastActiveAt: new Date(),
-          // We do NOT update email if it was a fuzzy match, to preserve the original email.
-          // But if it was an exact match, email is same anyway.
+    // --- TRANSACTION START ---
+    const newApplication = await this.prisma.$transaction(async (tx) => {
+      // 3. Create or Update Candidate
+      let candidate;
+      if (candidateId) {
+        candidate = await tx.candidate.update({
+          where: { id: candidateId },
+          data: {
+            firstName: data.name.split(' ')[0],
+            lastName: data.name.split(' ')[1] || '',
+            resumeS3Key: files.resume,
+            lastActiveAt: new Date(),
+          },
+        });
+      } else {
+        candidate = await tx.candidate.create({
+          data: {
+            email: data.email,
+            phone: data.phone,
+            firstName: data.name.split(' ')[0],
+            lastName: data.name.split(' ')[1] || '',
+            resumeS3Key: files.resume,
+            lastActiveAt: new Date(),
+          },
+        });
+      }
+
+      // 4. Check Duplicate Application (Scoped to Transaction to prevent race conditions ideally, but reads are fine here)
+      const existing = await tx.application.findUnique({
+        where: {
+          jobId_candidateId: { jobId: data.jobId, candidateId: candidate.id },
         },
       });
-    } else {
-      candidate = await this.prisma.candidate.create({
+      if (existing)
+        throw new ConflictException('You have already applied for this job.');
+
+      // 5. Create Application
+      const app = await tx.application.create({
         data: {
-          email: data.email,
-          phone: data.phone,
-          firstName: data.name.split(' ')[0],
-          lastName: data.name.split(' ')[1] || '',
-          resumeS3Key: files.resume,
-          lastActiveAt: new Date(),
+          jobId: data.jobId,
+          candidateId: candidate.id,
+          status: initialStatus,
+          knockoutAnswers: data.knockoutAnswers || {},
+          isAutoRejected: isAutoRejected,
+          coverLetterS3Key: files.coverLetter,
+          source: data.source,
         },
       });
-    }
 
-    // 4. Check Duplicate Application
-    const existing = await this.prisma.application.findUnique({
-      where: {
-        jobId_candidateId: { jobId: data.jobId, candidateId: candidate.id },
-      },
+      return app;
     });
-    if (existing)
-      throw new ConflictException('You have already applied for this job.');
+    // --- TRANSACTION END ---
 
-    // 5. Create Application
-    const newApplication = await this.prisma.application.create({
-      data: {
-        jobId: data.jobId,
-        candidateId: candidate.id,
-        status: initialStatus,
-        knockoutAnswers: data.knockoutAnswers || {},
-        isAutoRejected: isAutoRejected,
-        coverLetterS3Key: files.coverLetter,
-      },
-    });
-
-    // 5. Add to Queue for AI Processing
+    // 6. Add to Queue for AI Processing (Only if transaction succeeded)
     await this.applicationsQueue.add('process-application', {
       applicationId: newApplication.id,
       filePath: files.resume,
@@ -345,9 +380,19 @@ export class ApplicationsService {
     limit: number = 10,
     includeClosed: boolean = false,
     search?: string,
+    ownerId?: string, // [NEW] filter
   ) {
     const whereClause: any = {};
     if (jobId) whereClause.jobId = jobId;
+
+    // [NEW] Owner Filter
+    if (ownerId !== undefined) {
+      if (ownerId === 'null') {
+        whereClause.ownerId = null;
+      } else {
+        whereClause.ownerId = ownerId;
+      }
+    }
 
     if (search) {
       whereClause.candidate = {
@@ -439,6 +484,17 @@ export class ApplicationsService {
               },
               orderBy: { createdAt: 'desc' },
             },
+            // [NEW] Fetch related profiles (Ignored Duplicates)
+            exclusionsA: {
+              include: {
+                candidateB: { select: { id: true, firstName: true, lastName: true, email: true } }
+              }
+            },
+            exclusionsB: {
+              include: {
+                candidateA: { select: { id: true, firstName: true, lastName: true, email: true } }
+              }
+            },
           },
         },
         job: {
@@ -463,25 +519,148 @@ export class ApplicationsService {
     return application;
   }
 
-  async updateStatus(id: string, status: AppStatus) {
+  async updateStatus(
+    id: string,
+    status: AppStatus,
+    reason?: string,
+    notes?: string,
+    userRole?: Role,
+    userId?: string
+  ) {
+    const currentApp = await this.prisma.application.findUnique({
+      where: { id },
+      select: { status: true, jobId: true, candidateId: true },
+    });
+
+    if (!currentApp) throw new NotFoundException('Application not found');
+
+    // 1. Validate Transition
+    this.validateTransition(currentApp.status, status, userRole);
+
+    // 2. Handle Side Effects (Backward Moves)
+    await this.handleStatusSideEffects(id, currentApp.status, status);
+
+    // 3. Update Status
     const application = await this.prisma.application.update({
       where: { id },
       data: { status },
       include: { candidate: true, job: true },
     });
 
-    if (status === AppStatus.INTERVIEW) {
-      console.log(
+    // 4. Log History
+    if (currentApp.status !== status) {
+      await this.prisma.applicationHistory.create({
+        data: {
+          applicationId: id,
+          fromStatus: currentApp.status,
+          toStatus: status,
+          reason: reason || (notes ? 'See notes' : undefined),
+          changedById: userId,
+        },
+      });
+    }
+
+    // 5. Add Note (Comment) if provided
+    if (notes && userId) {
+      await this.prisma.comment.create({
+        data: {
+          content: `[Status Change Note]: ${notes}`,
+          applicationId: id,
+          authorId: userId,
+        },
+      });
+    }
+
+    // 6. Forward Move Automation (Smart Schedule)
+    if (status === AppStatus.INTERVIEW && currentApp.status !== AppStatus.INTERVIEW) {
+      this.logger.log(
         `🚀 Status changed to INTERVIEW. Triggering SmartScheduler...`,
       );
       try {
         await this.interviewsService.triggerInvite(application.id);
       } catch (error) {
-        console.error('❌ Failed to process interview invite:', error);
+        this.logger.error('❌ Failed to process interview invite:', error);
       }
     }
 
     return application;
+  }
+
+  private validateTransition(current: AppStatus, next: AppStatus, role?: Role) {
+    const weights: Record<AppStatus, number> = {
+      SOURCED: 0,
+      APPLIED: 10,
+      SCREENING: 20,
+      INTERVIEW: 30,
+      OFFER: 40,
+      HIRED: 50,
+      REJECTED: -1,
+    };
+
+    const currentWeight = weights[current];
+    const nextWeight = weights[next];
+
+    // Statuses that don't fit linear progression (REJECTED) need special handling or just allow if role permits
+    if (current === 'REJECTED' || next === 'REJECTED') return;
+
+    // Detect Backward Move
+    if (nextWeight < currentWeight) {
+      // Rule 1: Backward Move requires permission (Recruiter ok, Interviewer NO)
+      if (role === 'INTERVIEWER') {
+        throw new ConflictException('Interviewers cannot move candidates backward.');
+      }
+
+      // Rule 2: Moving from HIRED is restricted
+      if (current === 'HIRED') {
+        if (role !== 'ADMIN') {
+          throw new ConflictException('Only Admins can reverse a HIRED decision.');
+        }
+      }
+
+      // Rule 3: Moving from OFFER to INTERVIEW is valid but requires reason (Controller checks reason presence, we check logic)
+      // Logic is fine, side effects handled elsewhere.
+    }
+  }
+
+  private async handleStatusSideEffects(appId: string, current: AppStatus, next: AppStatus) {
+    const weights: Record<AppStatus, number> = {
+      SOURCED: 0, APPLIED: 10, SCREENING: 20, INTERVIEW: 30, OFFER: 40, HIRED: 50, REJECTED: -1
+    };
+
+    if (current === 'REJECTED' || next === 'REJECTED') return;
+    if (weights[next] >= weights[current]) return; // Forward or same
+
+    // --- Backward Move Detected ---
+
+    // 1. Cancel Interviews if moving back from INTERVIEW/OFFER/HIRED to SCREENING/APPLIED/SOURCED
+    // Logic: If we were at or past INTERVIEW, and go below INTERVIEW
+    if (weights[current] >= weights['INTERVIEW'] && weights[next] < weights['INTERVIEW']) {
+      const interviews = await this.interviewsService.findByApp(appId);
+      for (const interview of interviews) {
+        if (interview.status === 'PENDING' || interview.status === 'CONFIRMED') {
+          await this.interviewsService.updateStatus(interview.id, 'CANCELLED');
+          // Ideally log or notify
+        }
+      }
+    }
+
+    // 2. Void Offer if moving back from OFFER/HIRED to anything below OFFER
+    if (weights[current] >= weights['OFFER'] && weights[next] < weights['OFFER']) {
+      const offer = await this.offersService.findByApp(appId);
+      if (offer && (offer.status === 'DRAFT' || offer.status === 'SENT')) {
+        await this.offersService.updateStatus(offer.id, 'FAILED'); // Or DECLINED/FAILED
+      }
+    }
+
+    // 3. Reset Evaluations if moving to APPLIED (from anywhere higher)
+    if (weights[next] === weights['APPLIED']) {
+      // Reset AI Score so it can be re-evaluated if needed, or just clear it.
+      // Prompt says "Reset evaluations".
+      await this.prisma.application.update({
+        where: { id: appId },
+        data: { aiScore: null, aiSummary: null }
+      });
+    }
   }
 
   async generateRejectionDraft(id: string, reason: string = '') {
@@ -506,7 +685,7 @@ export class ApplicationsService {
       );
       return response.data;
     } catch (e: any) {
-      console.error('AI Rejection Gen Failed:', e.message);
+      this.logger.error('AI Rejection Gen Failed:', e.message);
       return {
         subject: `Application for ${app.job.title}`,
         body: `Dear ${app.candidate.firstName},\n\nThank you for your interest. Unfortunately, we have decided to proceed with other candidates.\n\nBest regards,\nThe Recruiting Team`,
@@ -515,11 +694,27 @@ export class ApplicationsService {
   }
 
   async rejectWithEmail(id: string, subject: string, body: string) {
+    const currentApp = await this.prisma.application.findUnique({
+      where: { id },
+      select: { status: true },
+    });
+
     const app = await this.prisma.application.update({
       where: { id },
       data: { status: 'REJECTED' },
       include: { candidate: true },
     });
+
+    if (currentApp && currentApp.status !== 'REJECTED') {
+      await this.prisma.applicationHistory.create({
+        data: {
+          applicationId: id,
+          fromStatus: currentApp.status,
+          toStatus: 'REJECTED',
+          reason: 'Manual Email Rejection',
+        },
+      });
+    }
 
     await this.emailService.sendRejectionEmail(
       app.candidate.email,
@@ -554,6 +749,47 @@ export class ApplicationsService {
       candidate: app.candidate.email,
       file: filePath,
     };
+  }
+
+  async assignOwner(id: string, ownerId: string, actorId: string) {
+    const app = await this.prisma.application.findUnique({
+      where: { id },
+      select: { id: true, ownerId: true, candidate: { select: { firstName: true, lastName: true } } },
+    });
+
+    if (!app) throw new NotFoundException('Application not found');
+
+    const updatedApp = await this.prisma.application.update({
+      where: { id },
+      data: { ownerId },
+      include: { owner: true },
+    });
+
+    if (app.ownerId !== ownerId) {
+      await this.prisma.auditLog.create({
+        data: {
+          action: 'ASSIGN_OWNER',
+          target: `Application:${id}`,
+          actorId,
+          details: {
+            oldOwnerId: app.ownerId,
+            newOwnerId: ownerId,
+          },
+        },
+      });
+    }
+
+    // --- NOTIFICATION ---
+    if (app.ownerId !== ownerId) {
+      await this.notificationsService.create(
+        ownerId,
+        'ASSIGNMENT',
+        `You have been assigned to application for ${app.candidate?.firstName} ${app.candidate?.lastName}`,
+        `/applications/${id}`
+      );
+    }
+
+    return updatedApp;
   }
 
   async findByIds(ids: string[]) {

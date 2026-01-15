@@ -1,4 +1,4 @@
-import { IsEnum, IsNotEmpty } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 // Matching the Prisma Enum 'AppStatus'
 export enum AppStatus {
@@ -15,4 +15,12 @@ export class UpdateApplicationStatusDto {
   @IsNotEmpty()
   @IsEnum(AppStatus)
   status: AppStatus;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }

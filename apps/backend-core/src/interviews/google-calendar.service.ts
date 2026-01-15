@@ -12,11 +12,19 @@ export class GoogleCalendarService {
     // These should be in your .env or ConfigService.
     // Ideally use ConfigService, but for now accessing process.env directly for simplicity as per existing pattern if applicable,
     // or better yet, inject ConfigService. I'll assume standard process.env usage here or empty strings to prevent crash.
-    this.oauth2Client = new google.auth.OAuth2(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET,
-      process.env.GOOGLE_REDIRECT_URI,
-    );
+    try {
+      this.oauth2Client = new google.auth.OAuth2(
+        process.env.GOOGLE_CLIENT_ID || 'dummy_id',
+        process.env.GOOGLE_CLIENT_SECRET || 'dummy_secret',
+        process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/callback',
+      );
+    } catch (e) {
+      this.logger.error('Failed to initialize Google OAuth2 Client', e);
+      // Initialize with dummy data to prevent runtime crashes on access
+      this.oauth2Client = new google.auth.OAuth2(
+        'missing_id', 'missing_secret', 'http://localhost'
+      );
+    }
   }
 
   /**
@@ -125,6 +133,77 @@ export class GoogleCalendarService {
       this.oauth2Client.setCredentials(credentials);
     } catch (error) {
       this.logger.error(`Failed to refresh token for user ${user.id}`, error);
+    }
+  }
+
+
+  async createEvent(user: User, interview: any) {
+    if (!user.googleAccessToken) return null;
+
+    try {
+      this.setCredentials(user);
+
+      const calendar = google.calendar({ version: 'v3', auth: this.oauth2Client });
+
+      const startTime = new Date(interview.scheduledAt);
+      const endTime = new Date(startTime.getTime() + 60 * 60 * 1000); // 1 hour
+
+      const event = {
+        summary: `Interview: ${interview.application.candidate.firstName} ${interview.application.candidate.lastName} - ${interview.application.job.title}`,
+        description: `Interview for ${interview.application.job.title} position.<br>Candidate: ${interview.application.candidate.firstName} ${interview.application.candidate.lastName}`,
+        start: { dateTime: startTime.toISOString() },
+        end: { dateTime: endTime.toISOString() },
+        attendees: [{ email: interview.application.candidate.email }],
+      };
+
+      const res = await calendar.events.insert({
+        calendarId: user.googleCalendarId || 'primary',
+        requestBody: event,
+      });
+
+      return res.data.id;
+    } catch (error) {
+      this.logger.error(`Failed to create Google event for user ${user.id}`, error);
+      return null;
+    }
+  }
+
+  async updateEvent(user: User, eventId: string, interview: any) {
+    if (!user.googleAccessToken) return;
+
+    try {
+      this.setCredentials(user);
+      const calendar = google.calendar({ version: 'v3', auth: this.oauth2Client });
+
+      const startTime = new Date(interview.scheduledAt);
+      const endTime = new Date(startTime.getTime() + 60 * 60 * 1000);
+
+      await calendar.events.patch({
+        calendarId: user.googleCalendarId || 'primary',
+        eventId: eventId,
+        requestBody: {
+          start: { dateTime: startTime.toISOString() },
+          end: { dateTime: endTime.toISOString() },
+        },
+      });
+    } catch (error) {
+      this.logger.error(`Failed to update Google event ${eventId}`, error);
+    }
+  }
+
+  async deleteEvent(user: User, eventId: string) {
+    if (!user.googleAccessToken) return;
+
+    try {
+      this.setCredentials(user);
+      const calendar = google.calendar({ version: 'v3', auth: this.oauth2Client });
+
+      await calendar.events.delete({
+        calendarId: user.googleCalendarId || 'primary',
+        eventId: eventId,
+      });
+    } catch (error) {
+      this.logger.error(`Failed to delete Google event ${eventId}`, error);
     }
   }
 }

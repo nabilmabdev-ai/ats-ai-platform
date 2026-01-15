@@ -116,12 +116,11 @@ export default function DashboardJobs({ jobs }: { jobs: Job[] }) {
     };
 
     return (
-        <>
+        <div className="p-6">
             {/* Controls Header */}
             <div className="flex flex-col sm:flex-row items-end sm:items-center justify-between mb-[var(--space-6)] gap-[var(--space-4)]">
                 <div className="flex items-center gap-3">
-                    <h2 className="text-h3">Recent Job Postings</h2>
-                    <span className="px-2.5 py-0.5 rounded-full bg-[var(--color-neutral-100)] text-[var(--color-text-soft)] text-xs font-bold">{jobs.length}</span>
+                    <span className="text-sm font-medium text-[var(--color-text-soft)]">{jobs.length} job postings</span>
                 </div>
 
                 <div className="flex gap-3 items-center">
@@ -178,6 +177,6 @@ export default function DashboardJobs({ jobs }: { jobs: Job[] }) {
                     <JobTable jobs={jobs} onDuplicate={handleDuplicate} />
                 )
             )}
-        </>
+        </div>
     );
 }

@@ -195,7 +195,7 @@ export default function CandidatesPage({ params }: { params: Promise<{ id: strin
       // });
 
       // For now, just simulate success and clear selection
-      console.log(`Processing ${action} for ${selectedAppIds.size} applications`);
+
       await new Promise(resolve => setTimeout(resolve, 1000));
       setSelectedAppIds(new Set());
       // Refresh data

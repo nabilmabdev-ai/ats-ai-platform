@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { MeiliSearch } from 'meilisearch';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
@@ -6,6 +6,7 @@ import { firstValueFrom } from 'rxjs';
 @Injectable()
 export class SearchService implements OnModuleInit {
   private meiliClient: MeiliSearch;
+  private readonly logger = new Logger(SearchService.name);
 
   constructor(private readonly httpService: HttpService) {
     this.meiliClient = new MeiliSearch({
@@ -77,7 +78,7 @@ export class SearchService implements OnModuleInit {
         score: m.score,
       }));
     } catch (error) {
-      console.error('Vector search failed', error);
+      this.logger.error('Vector search failed', error);
       return [];
     }
   }
@@ -89,7 +90,7 @@ export class SearchService implements OnModuleInit {
       // MeiliSearch returns matches ordered by relevance
       return result.hits.map((h: any) => ({ id: h.id }));
     } catch (error) {
-      console.error('Keyword search failed', error);
+      this.logger.error('Keyword search failed', error);
       return [];
     }
   }

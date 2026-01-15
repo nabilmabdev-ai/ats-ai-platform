@@ -15,6 +15,7 @@ import { EmailService } from '../email/email.service';
 import { SaveHumanScorecardDto } from './dto/save-human-scorecard.dto';
 import { SaveAiScorecardDto } from './dto/save-ai-scorecard.dto';
 import { CalendarService } from './calendar.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class InterviewsService {
@@ -24,34 +25,64 @@ export class InterviewsService {
     private configService: ConfigService,
     private emailService: EmailService,
     private calendarService: CalendarService,
+    private notificationsService: NotificationsService,
   ) { }
 
   // --- NEW: Find All (For Dashboard) ---
-  async findAll(page: number = 1, limit: number = 10, startDate?: Date) {
+  // --- NEW: Find All (For Dashboard) ---
+  async findAll(page: number = 1, limit: number = 10, startDate?: Date, search?: string) {
     const skip = (page - 1) * limit;
-    const where: any = {
-      scheduledAt: {
-        gte: startDate || new Date(),
-      },
+
+    // Allow fetching PENDING (null date) or Future events
+    const dateCondition = {
+      OR: [
+        { scheduledAt: { gte: startDate || new Date() } },
+        { scheduledAt: null }
+      ]
     };
 
-    return this.prisma.interview.findMany({
-      where,
-      skip,
-      take: limit,
-      include: {
-        application: {
-          include: {
-            candidate: {
-              select: { firstName: true, lastName: true, email: true },
+    const where: any = {
+      AND: [dateCondition]
+    };
+
+    if (search) {
+      where.AND.push({
+        OR: [
+          { application: { candidate: { firstName: { contains: search, mode: 'insensitive' } } } },
+          { application: { candidate: { lastName: { contains: search, mode: 'insensitive' } } } },
+          { application: { job: { title: { contains: search, mode: 'insensitive' } } } },
+        ]
+      });
+    }
+
+    const [interviews, total] = await Promise.all([
+      this.prisma.interview.findMany({
+        where,
+        skip,
+        take: limit,
+        include: {
+          application: {
+            include: {
+              candidate: {
+                select: { firstName: true, lastName: true, email: true },
+              },
+              job: { select: { title: true } },
             },
-            job: { select: { title: true } },
           },
+          interviewer: { select: { id: true, fullName: true } },
         },
-        interviewer: { select: { fullName: true } },
-      },
-      orderBy: { scheduledAt: 'asc' },
-    });
+        orderBy: { scheduledAt: 'asc' },
+      }),
+      this.prisma.interview.count({ where }),
+    ]);
+
+    return {
+      data: interviews,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   async saveDraftNotes(interviewId: string, notes: string) {
@@ -186,13 +217,29 @@ export class InterviewsService {
     });
   }
 
-  async triggerInvite(applicationId: string) {
+  async triggerInvite(applicationId: string, userId?: string, customMessage?: string) {
     try {
+      // Resolve Sender Email for "Reply-To"
+      let senderEmail: string | undefined;
+
+      if (userId) {
+        const sender = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+        if (sender) senderEmail = sender.email;
+      }
+
+      // If no current user, try application owner
+      if (!senderEmail) {
+        const appWithOwner = await this.prisma.application.findUnique({
+          where: { id: applicationId },
+          include: { owner: true }
+        });
+        if (appWithOwner?.owner?.email) senderEmail = appWithOwner.owner.email;
+      }
+
       const invite = await this.createInvite(applicationId);
       const bookingLink = `http://localhost:3000/book/${invite.bookingToken}`;
 
-      // Re-fetch to get candidate details if createInvite didn't return them (it returns the created object)
-      // Actually createInvite returns the interview object. We need candidate details.
+      // Re-fetch to get candidate details
       const application = await this.prisma.application.findUnique({
         where: { id: applicationId },
         include: { candidate: true, job: true },
@@ -200,13 +247,33 @@ export class InterviewsService {
 
       if (!application) return;
 
+      const company = await this.prisma.company.findFirst();
+
       await this.emailService.sendInterviewInvite(
         application.candidate.email,
         application.candidate.firstName || 'Candidate',
         application.job.title,
         bookingLink,
+        customMessage,
+        senderEmail,
+        company?.showEmailHeader ? (company?.headerImageUrl || undefined) : undefined,
+        company?.showEmailFooter ? (company?.footerImageUrl || undefined) : undefined,
+        company?.showCompanyAddress ? (company?.address || undefined) : undefined
       );
+
+      // Log Activity
+      if (userId) {
+        await this.prisma.comment.create({
+          data: {
+            content: `System: Sent interview invite via Smart Schedule.${customMessage ? ` Note: "${customMessage}"` : ''}`,
+            applicationId: applicationId,
+            authorId: userId,
+          }
+        });
+      }
+
       return invite;
+
     } catch (error) {
       console.error(
         `Failed to trigger interview invite for app ${applicationId}:`,
@@ -215,6 +282,7 @@ export class InterviewsService {
       throw error;
     }
   }
+
 
   async getSmartScheduleCandidates() {
     return this.prisma.application.findMany({
@@ -242,7 +310,7 @@ export class InterviewsService {
     });
   }
 
-  async runSmartSchedule(applicationIds?: string[]) {
+  async runSmartSchedule(applicationIds?: string[], userId?: string, customMessage?: string) {
     // 1. Find all applications in INTERVIEW status that do NOT have an interview record
     // If applicationIds is provided, filter by those IDs as well
     const whereClause: any = {
@@ -263,6 +331,7 @@ export class InterviewsService {
 
     console.log(
       `Smart Schedule: Found ${appsNeedingInvite.length} candidates needing invites.`,
+      `User: ${userId}`
     );
 
     let sentCount = 0;
@@ -270,7 +339,7 @@ export class InterviewsService {
 
     for (const app of appsNeedingInvite) {
       try {
-        await this.triggerInvite(app.id);
+        await this.triggerInvite(app.id, userId, customMessage);
         sentCount++;
       } catch (e: any) {
         errors.push({ applicationId: app.id, error: e.message });
@@ -283,6 +352,7 @@ export class InterviewsService {
       errors,
     };
   }
+
 
   async getAvailableSlots(token: string, candidateTimeZone?: string) {
     const interview = await this.prisma.interview.findUnique({
@@ -311,7 +381,7 @@ export class InterviewsService {
   async confirmBooking(token: string, slotTime: string) {
     const interview = await this.prisma.interview.findUnique({
       where: { bookingToken: token },
-      include: { application: { include: { candidate: true } } },
+      include: { application: { include: { candidate: true, job: true } } },
     });
 
     if (!interview || interview.status !== 'PENDING') {
@@ -338,11 +408,35 @@ export class InterviewsService {
         interview.application.candidate.firstName || 'Candidate';
       const candidateEmail = interview.application.candidate.email;
 
+      const company = await this.prisma.company.findFirst();
+
       await this.emailService.sendConfirmation(
         candidateEmail,
         candidateName,
         confirmedDate,
+        'Google Meet',
+        company?.showEmailHeader ? (company?.headerImageUrl || undefined) : undefined,
+        company?.showEmailFooter ? (company?.footerImageUrl || undefined) : undefined,
+        company?.showCompanyAddress ? (company?.address || undefined) : undefined
       );
+
+      // --- Trigger 2-Way Sync ---
+      try {
+        await this.calendarService.syncEventToExternal(updated.id);
+      } catch (syncError) {
+        console.error(`Failed to sync interview ${updated.id} to external calendar`, syncError);
+        // Don't fail the request, just log it.
+      }
+
+      // --- NEW: NOTIFY INTERVIEWER ---
+      if (interview.interviewerId) {
+        await this.notificationsService.create(
+          interview.interviewerId,
+          'INTERVIEW_BOOKED',
+          `New Interview Confirmed: ${candidateName} for ${interview.application.job.title}`,
+          `/interviews?date=${confirmedDate.toISOString().split('T')[0]}`
+        );
+      }
 
       return updated;
     } catch (error: any) {
@@ -420,4 +514,80 @@ export class InterviewsService {
 
     return { success: true, newStatus };
   }
+
+  getAvailability(interviewerId: string, start: Date, end: Date) {
+    return this.calendarService.getAvailability(interviewerId, start, end);
+  }
+
+  async updateStatus(id: string, status: 'CONFIRMED' | 'CANCELLED') {
+    const interview = await this.prisma.interview.findUnique({ where: { id } });
+    if (!interview) throw new NotFoundException('Interview not found');
+
+    const updated = await this.prisma.interview.update({
+      where: { id },
+      data: { status, confirmedSlot: status === 'CONFIRMED' ? interview.scheduledAt : null },
+    });
+
+    // Attempt sync if confirmed
+    if (status === 'CONFIRMED' && interview.scheduledAt) {
+      try {
+        await this.calendarService.syncEventToExternal(updated.id);
+      } catch (e) { console.error('Sync failed', e); }
+    }
+
+    return updated;
+  }
+
+  async assignInterviewer(interviewId: string, interviewerId: string, actorId?: string) {
+    const interview = await this.prisma.interview.findUnique({
+      where: { id: interviewId },
+      include: {
+        application: {
+          include: { candidate: true }
+        }
+      }
+    });
+
+    if (!interview) throw new NotFoundException('Interview not found');
+
+    const interviewer = await this.prisma.user.findUnique({
+      where: { id: interviewerId },
+    });
+
+    if (!interviewer) throw new NotFoundException('Interviewer not found');
+
+    const updated = await this.prisma.interview.update({
+      where: { id: interviewId },
+      data: { interviewerId },
+      include: { interviewer: true }
+    });
+
+    // Audit Log
+    await this.prisma.auditLog.create({
+      data: {
+        actorId,
+        action: 'ASSIGN_INTERVIEWER',
+        target: `Interview:${interviewId}`,
+        details: {
+          previousInterviewerId: interview.interviewerId,
+          newInterviewerId: interviewerId,
+          newInterviewerName: interviewer.fullName
+        }
+      }
+    });
+
+    // --- NEW: NOTIFY NEW INTERVIEWER ---
+    if (interviewerId !== interview.interviewerId) {
+      const candidateName = interview.application?.candidate?.firstName || 'Candidate';
+      await this.notificationsService.create(
+        interviewerId,
+        'ASSIGNMENT',
+        `You have been assigned to interview ${candidateName}`,
+        `/interviews`
+      );
+    }
+
+    return updated;
+  }
 }
+

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '@/components/AuthProvider';
 
 // --- Helper Icons & Components ---
 const IconSend = () => <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg>;
@@ -34,17 +35,13 @@ export default function CommentSection({ applicationId }: { applicationId: strin
       .then((data) => setComments(Array.isArray(data) ? data : []));
   }, [applicationId]);
 
+  const { user } = useAuth();
+  // Sync local state if needed or just use 'user' directly. 
+  // For minimal refactor, we can set currentUser from user
   useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/users`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-      .then((res) => res.json())
-      .then((users) => {
-        if (users.length > 0) setCurrentUser(users[0]);
-      });
+    if (user) setCurrentUser(user);
     fetchComments();
-  }, [applicationId, fetchComments]);
+  }, [user, applicationId, fetchComments]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,7 +52,7 @@ export default function CommentSection({ applicationId }: { applicationId: strin
       const token = localStorage.getItem('access_token');
       await fetch(`${process.env.NEXT_PUBLIC_API_URL}/comments`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
@@ -73,7 +70,7 @@ export default function CommentSection({ applicationId }: { applicationId: strin
       setLoading(false);
     }
   };
-  
+
   const formatTimestamp = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -95,11 +92,11 @@ export default function CommentSection({ applicationId }: { applicationId: strin
                 {c.author.fullName?.slice(0, 1) || 'U'}
               </div>
               <div className="relative bg-white p-3 rounded-lg shadow-[var(--shadow-xs)] w-full">
-                 <div className="flex justify-between items-center mb-1">
-                    <span className="text-xs font-bold text-gray-800">{c.author.fullName}</span>
-                 </div>
-                 <p className="text-sm text-gray-700 whitespace-pre-wrap">{c.content}</p>
-                 <span className="absolute top-2 right-2 text-[10px] text-[var(--color-slate)]">{formatTimestamp(c.createdAt)}</span>
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-xs font-bold text-gray-800">{c.author.fullName}</span>
+                </div>
+                <p className="text-sm text-gray-700 whitespace-pre-wrap">{c.content}</p>
+                <span className="absolute top-2 right-2 text-[10px] text-[var(--color-slate)]">{formatTimestamp(c.createdAt)}</span>
               </div>
             </div>
           ))

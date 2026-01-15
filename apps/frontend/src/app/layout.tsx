@@ -5,6 +5,7 @@ import Shell from "./components/Shell";
 
 import { AuthProvider } from '@/components/AuthProvider';
 import { ToastProvider } from '@/components/ui/Toast';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 // Load Inter font
 const inter = Inter({
@@ -37,7 +38,9 @@ export default function RootLayout({
       >
         <AuthProvider>
           <ToastProvider>
-            <Shell>{children}</Shell>
+            <ErrorBoundary>
+              <Shell>{children}</Shell>
+            </ErrorBoundary>
           </ToastProvider>
         </AuthProvider>
       </body>

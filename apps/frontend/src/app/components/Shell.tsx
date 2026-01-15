@@ -13,7 +13,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   // Define public routes where the Recruiter Sidebar should NOT appear
   // UPDATED: Added '/login' and '/careers' to the exclusion list
   const safePathname = pathname || '';
-  const isPublic = safePathname.startsWith('/book') || safePathname.includes('/apply') || safePathname.startsWith('/login') || safePathname.startsWith('/careers') || safePathname.includes('/thank-you');
+  const isPublic = safePathname.startsWith('/book') || safePathname.includes('/apply') || safePathname.startsWith('/login') || safePathname.startsWith('/careers') || safePathname.includes('/thank-you') || safePathname.startsWith('/portal');
 
   if (isPublic) {
     return (

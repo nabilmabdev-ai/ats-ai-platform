@@ -5,6 +5,8 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { DraggableProvided, DraggableStateSnapshot } from '@hello-pangea/dnd';
 import MergeCandidateModal from './MergeCandidateModal';
+import EditCandidateModal from './EditCandidateModal';
+import { Pencil } from 'lucide-react';
 
 // --- Types ---
 // Note: Ideally this should be imported from a shared types file or PipelineBoard
@@ -16,6 +18,9 @@ interface Application {
         email: string;
         firstName: string;
         lastName: string;
+        phone?: string;
+        location?: string;
+        linkedinUrl?: string;
         _count?: { applications: number }; // Added count
     };
     aiSummary: string;
@@ -90,6 +95,7 @@ export default function CandidateCard({ app, provided, snapshot }: CandidateCard
     const isRepeat = candidate._count?.applications && candidate._count.applications > 1;
 
     const [showMergeModal, setShowMergeModal] = useState(false);
+    const [showEditModal, setShowEditModal] = useState(false);
     const isParsing = !aiSummary || aiSummary === '';
 
     return (
@@ -144,14 +150,16 @@ export default function CandidateCard({ app, provided, snapshot }: CandidateCard
                 )}
 
                 <div className="mt-3 flex justify-end gap-2">
-                    {/* Merge Button */}
+                    {/* Edit Button */}
                     <button
-                        onClick={() => setShowMergeModal(true)}
-                        className="rounded-[var(--radius-sm)] px-2 py-1.5 text-xs text-[var(--color-text-soft)] hover:bg-[var(--color-neutral-100)] transition-colors"
-                        title="Merge Candidate"
+                        onClick={() => setShowEditModal(true)}
+                        className="rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-soft)] hover:bg-[var(--color-neutral-100)] transition-colors"
+                        title="Edit Candidate"
                     >
-                        Merge
+                        <Pencil className="w-3.5 h-3.5" />
                     </button>
+
+                    {/* Specific action button if in INTERVIEW stage */}
 
                     {/* Specific action button if in INTERVIEW stage */}
                     {status === 'INTERVIEW' ? (
@@ -178,7 +186,21 @@ export default function CandidateCard({ app, provided, snapshot }: CandidateCard
                     primaryCandidate={candidate}
                     onClose={() => setShowMergeModal(false)}
                     onMergeSuccess={() => {
-                        // Ideally refresh the board, but for now just close
+                        window.location.reload();
+                    }}
+                />
+            )}
+
+            {showEditModal && (
+                <EditCandidateModal
+                    candidate={candidate}
+                    isOpen={showEditModal}
+                    onClose={() => setShowEditModal(false)}
+                    onRequestManualMerge={() => {
+                        setShowEditModal(false);
+                        setShowMergeModal(true);
+                    }}
+                    onSuccess={() => {
                         window.location.reload();
                     }}
                 />

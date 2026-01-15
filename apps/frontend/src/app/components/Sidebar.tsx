@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/components/AuthProvider';
+import NotificationBell from './NotificationBell';
 
 // --- Icons (SVG Components for Premium Look) ---
 const Icons = {
@@ -77,6 +78,16 @@ const Icons = {
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
     </svg>
+  ),
+  Chart: (className: string) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2z" />
+    </svg>
+  ),
+  ShieldCheck: (className: string) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+    </svg>
   )
 };
 
@@ -127,15 +138,19 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
-  const { logout } = useAuth();
-  const [avatarUrl, setAvatarUrl] = useState('https://i.pravatar.cc/40?u=alice');
+  const { logout, user } = useAuth(); // Destructure user
+  const [avatarUrl, setAvatarUrl] = useState('https://i.pravatar.cc/40?u=user');
 
   useEffect(() => {
+    // If user has an avatar URL in their profile (future), use that.
+    // For now, check local storage or generate one based on name
     const storedAvatar = localStorage.getItem('user-avatar');
     if (storedAvatar) {
       setAvatarUrl(storedAvatar);
+    } else if (user?.fullName) {
+      setAvatarUrl(`https://ui-avatars.com/api/?name=${encodeURIComponent(user.fullName)}&background=random`);
     }
-  }, []);
+  }, [user]);
 
   const handleAvatarChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
@@ -168,7 +183,8 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
         }`}>
         <div className="relative group">
           <div className="w-8 h-8 bg-[var(--color-primary)] rounded-[var(--radius-md)] flex items-center justify-center text-white font-bold shrink-0 shadow-[var(--shadow-glow)] group-hover:scale-105 transition-all">
-            A
+            {/* Dynamic Initial */}
+            {user?.fullName ? user.fullName[0].toUpperCase() : 'A'}
           </div>
         </div>
         {!isCollapsed && (
@@ -178,12 +194,12 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
         )}
       </div>
 
-      {/* User Profile - NEW POSITION */}
+      {/* User Profile */}
       <div className={`flex items-center gap-3 py-4 px-3 transition-all duration-300 border-b border-[var(--color-border)] ${isCollapsed ? 'justify-center' : ''}`}>
         <label className="relative group cursor-pointer">
           <div className="w-9 h-9 rounded-full bg-[var(--color-primary)]/10 border border-[var(--color-primary)]/20 shrink-0 flex items-center justify-center text-[var(--color-primary)] font-bold text-xs overflow-hidden">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={avatarUrl} alt="Alice Recruiter" className="w-full h-full object-cover" />
+            <img src={avatarUrl} alt={user?.fullName || 'User'} className="w-full h-full object-cover" />
           </div>
           <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
             <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
@@ -192,10 +208,16 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
         </label>
         {!isCollapsed && (
           <div className="overflow-hidden">
-            <p className="text-sm font-medium text-[var(--color-text-dark)] truncate">Alice Recruiter</p>
-            <p className="text-[10px] text-[var(--color-text-soft)] truncate uppercase tracking-wider font-semibold">Admin • Acme Corp</p>
+            <p className="text-sm font-medium text-[var(--color-text-dark)] truncate">{user?.fullName || 'Loading...'}</p>
+            <p className="text-[10px] text-[var(--color-text-soft)] truncate uppercase tracking-wider font-semibold">{user?.role || 'User'} • Acme Corp</p>
           </div>
         )}
+
+        {/* NOTIFICATION BELL INSERTION */}
+        <div className={`ml-auto ${isCollapsed ? 'hidden' : ''}`}>
+          <NotificationBell />
+        </div>
+
       </div>
 
       {/* 2. Navigation */}
@@ -205,19 +227,28 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
         <NavItem href="/" label="Overview" icon="Overview" isCollapsed={isCollapsed} />
 
         <SectionLabel text="Recruitment" isCollapsed={isCollapsed} />
-        <NavItem href="/dashboard" label="Pipeline" icon="Pipeline" isCollapsed={isCollapsed} />
+        <NavItem href="/dashboard" label="Recruitment" icon="Pipeline" isCollapsed={isCollapsed} />
         <NavItem href="/vacancies" label="Jobs" icon="Briefcase" isCollapsed={isCollapsed} />
+        <NavItem href="/search?tab=database" label="Candidates" icon="Users" isCollapsed={isCollapsed} />
         <NavItem href="/search" label="CV Search" icon="Search" isCollapsed={isCollapsed} />
+        <NavItem href="/cv-doctor" label="CV Doctor" icon="Sparkles" isCollapsed={isCollapsed} />
 
         <SectionLabel text="Operations" isCollapsed={isCollapsed} />
         <NavItem href="/interviews" label="Interviews" icon="Calendar" isCollapsed={isCollapsed} />
         <NavItem href="/offers" label="Offers" icon="FileText" isCollapsed={isCollapsed} />
 
+        <SectionLabel text="Collaboration" isCollapsed={isCollapsed} />
+        <NavItem href="/tasks" label="My Tasks" icon="Briefcase" isCollapsed={isCollapsed} />
+
+        <SectionLabel text="Analytics" isCollapsed={isCollapsed} />
+        <NavItem href="/reports" label="Reports" icon="Chart" isCollapsed={isCollapsed} />
+
         <SectionLabel text="Workspace" isCollapsed={isCollapsed} />
         <NavItem href="/team" label="Team" icon="Users" isCollapsed={isCollapsed} />
+        <NavItem href="/settings/import" label="Import Candidates" icon="Import" isCollapsed={isCollapsed} />
         <NavItem href="/settings" label="Settings" icon="Settings" isCollapsed={isCollapsed} />
         <NavItem href="/settings/templates" label="Templates" icon="Template" isCollapsed={isCollapsed} />
-        <NavItem href="/settings/import" label="Import Candidates" icon="Import" isCollapsed={isCollapsed} />
+
       </div>
 
       {/* 3. Footer / Toggle */}

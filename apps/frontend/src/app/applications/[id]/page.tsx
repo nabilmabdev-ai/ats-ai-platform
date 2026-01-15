@@ -4,6 +4,7 @@
 
 import { useState, useEffect, use } from 'react';
 import Link from 'next/link';
+import OfferManager from '../../components/OfferManager';
 import CommentSection from '@/app/components/CommentSection';
 import {
     BriefcaseIcon,
@@ -74,6 +75,8 @@ interface Application {
             createdAt: string;
             job: { id: string; title: string };
         }[];
+        exclusionsA?: { candidateB: { id: string; firstName: string; lastName: string; email: string } }[];
+        exclusionsB?: { candidateA: { id: string; firstName: string; lastName: string; email: string } }[];
     };
     job: {
         id: string;
@@ -107,7 +110,13 @@ interface Application {
             detail?: string;
         };
     };
-}
+    owner?: {
+        id: string;
+        fullName: string;
+    };
+};
+
+import UserSelect from '@/components/UserSelect';
 
 const STATUS_STEPS = ['APPLIED', 'SCREENING', 'INTERVIEW', 'OFFER', 'HIRED'];
 
@@ -117,7 +126,7 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
     const [app, setApp] = useState<Application | null>(null);
     const [loading, setLoading] = useState(true);
     const [updating, setUpdating] = useState(false);
-    const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'RESUME' | 'METADATA'>('OVERVIEW');
+    const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'RESUME' | 'METADATA' | 'OFFER'>('OVERVIEW');
 
     useEffect(() => {
         if (appId) {
@@ -323,10 +332,34 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
                                         Additional Info
                                     </button>
                                 )}
+                                {app.status === 'OFFER' && (
+                                    <button
+                                        onClick={() => setActiveTab('OFFER')}
+                                        className={`pb-3 text-sm font-bold uppercase tracking-wider transition-all border-b-2 ${activeTab === 'OFFER'
+                                            ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
+                                            : 'border-transparent text-[var(--color-text-soft)] hover:text-[var(--color-text-dark)]'
+                                            }`}
+                                    >
+                                        Offer Management
+                                    </button>
+                                )}
                             </div>
 
                             {/* Tab Content */}
                             <div className="bg-white rounded-[var(--radius-xl)] border border-[var(--color-border-subtle)] shadow-sm min-h-[500px] overflow-hidden">
+                                {activeTab === 'OFFER' && (
+                                    <div className="p-8 h-full">
+                                        <OfferManager
+                                            applicationId={app.id}
+                                            candidateName={`${app.candidate.firstName} ${app.candidate.lastName}`}
+                                            jobTitle={app.job.title}
+                                            onStatusChange={() => {
+                                                // Optional: refresh app or show notification
+                                                console.log('Offer status changed');
+                                            }}
+                                        />
+                                    </div>
+                                )}
                                 {activeTab === 'OVERVIEW' && (
                                     <div className="p-8 space-y-8 animate-fade-in">
 
@@ -335,10 +368,12 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
                                             <h3 className="text-xs font-bold text-[var(--color-info-text)] uppercase tracking-widest mb-3 flex items-center gap-2">
                                                 <span className="text-lg">✨</span> AI Executive Summary
                                             </h3>
-                                            <p className="text-sm text-[var(--color-text-dark)] leading-relaxed font-medium">
+                                            <p className="text-sm text-[var(--color-text-dark)] leading-relaxed">
                                                 {app.aiSummary || "No summary generated yet. This candidate is waiting for processing."}
                                             </p>
                                         </div>
+
+                                        {/* Quick Actions Grid */}
 
                                         {/* Pros & Cons Analysis */}
                                         {(app.aiParsingData?.screening?.pros?.length || app.aiParsingData?.screening?.cons?.length) ? (
@@ -571,6 +606,47 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
                                 </div>
                             )}
 
+                            {/* [NEW] Application Owner Assignment */}
+                            <div className="bg-white p-6 rounded-[var(--radius-xl)] border border-[var(--color-border-subtle)] shadow-sm">
+                                <h3 className="text-xs font-bold text-[var(--color-text-soft)] uppercase tracking-widest mb-4">Assigned Recruiter</h3>
+                                <div className="space-y-2">
+                                    <UserSelect
+                                        value={app.owner?.id}
+                                        role="RECRUITER"
+                                        onChange={async (newOwnerId) => {
+                                            try {
+                                                const token = localStorage.getItem('access_token');
+                                                const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/applications/${app.id}/owner`, {
+                                                    method: 'PATCH',
+                                                    headers: {
+                                                        'Content-Type': 'application/json',
+                                                        'Authorization': `Bearer ${token}`
+                                                    },
+                                                    body: JSON.stringify({ ownerId: newOwnerId })
+                                                });
+                                                if (res.ok) {
+                                                    // Optimistically update or re-fetch
+                                                    // For now, let's just update the local state minimally if we had the full user object, 
+                                                    // but simple re-fetch is safer or we just update the ID. 
+                                                    // Ideally we need the new owner's name for display if UserSelect is uncontrolled-ish 
+                                                    // but UserSelect displays based on ID if it fetches internally.
+                                                    // Let's re-fetch to be safe and simple.
+                                                    const updatedApp = await res.json();
+                                                    setApp(prev => prev ? ({ ...prev, owner: updatedApp.owner }) : null);
+                                                }
+                                            } catch (e) {
+                                                console.error("Failed to assign owner", e);
+                                                alert("Failed to assign recruiter");
+                                            }
+                                        }}
+                                        placeholder="Assign a Recruiter..."
+                                    />
+                                    <p className="text-[10px] text-[var(--color-text-soft)]">
+                                        This recruiter will be responsible for this application.
+                                    </p>
+                                </div>
+                            </div>
+
                             {/* Quick Actions Card */}
                             <div className="bg-white p-6 rounded-[var(--radius-xl)] border border-[var(--color-border-subtle)] shadow-sm">
                                 <h3 className="text-xs font-bold text-[var(--color-text-soft)] uppercase tracking-widest mb-4">Quick Actions</h3>
@@ -645,14 +721,54 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
                                 </div>
                             </div>
 
+                            {/* [NEW] Related Profiles (Ignored Duplicates) */}
+                            {(() => {
+                                const related = [
+                                    ...(app.candidate.exclusionsA?.map((e: any) => e.candidateB) || []),
+                                    ...(app.candidate.exclusionsB?.map((e: any) => e.candidateA) || [])
+                                ];
+
+                                if (related.length === 0) return null;
+
+                                return (
+                                    <div className="bg-amber-50/50 p-6 rounded-[var(--radius-xl)] border border-amber-100 shadow-sm animate-fade-in">
+                                        <h3 className="text-xs font-bold text-amber-800 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                            <span className="text-lg">🔗</span> Related Profiles
+                                        </h3>
+                                        <div className="space-y-3">
+                                            {related.map((profile) => (
+                                                <div key={profile.id} className="flex items-center justify-between p-3 rounded-lg bg-white border border-amber-200/50">
+                                                    <div className="flex flex-col">
+                                                        <span className="text-xs font-bold text-amber-900">
+                                                            {profile.firstName} {profile.lastName}
+                                                        </span>
+                                                        <span className="text-[10px] text-amber-700/70">{profile.email}</span>
+                                                    </div>
+                                                    <Link
+                                                        href={`/candidates/search?q=${profile.email}`} // Temporary link to search as we don't have a direct profile page yet
+                                                        target="_blank"
+                                                        className="text-[10px] font-bold text-amber-700 hover:underline"
+                                                    >
+                                                        VIEW
+                                                    </Link>
+                                                </div>
+                                            ))}
+                                            <div className="pt-2 text-[10px] text-amber-700/60 italic leading-snug">
+                                                These profiles were marked as "Not a Duplicate" by a recruiter.
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+
                             {/* Comment Section Component */}
                             <div className="h-[500px] bg-white rounded-[var(--radius-xl)] border border-[var(--color-border-subtle)] shadow-sm overflow-hidden">
                                 <CommentSection applicationId={app.id} />
                             </div>
                         </div>
                     </div>
-                </div>
-            </main>
-        </div>
+                </div >
+            </main >
+        </div >
     );
 }

@@ -2,7 +2,7 @@ import DashboardDataFetcher from './DashboardDataFetcher';
 
 export const dynamic = 'force-dynamic';
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 500;
 
 interface Application {
   id: string;
@@ -41,6 +41,7 @@ export default async function Dashboard({
     const headers: HeadersInit = { 'Content-Type': 'application/json' };
 
     // 1. Fetch Jobs
+
     const jobsRes = await fetch(`${baseUrl}/jobs`, { headers, cache: 'no-store', next: { tags: ['jobs'] } });
     if (!jobsRes.ok) throw new Error(`Failed to fetch jobs: ${jobsRes.status}`);
     const jobsPayload = await jobsRes.json();
@@ -67,7 +68,7 @@ export default async function Dashboard({
       totalCount = appsData.length;
     }
 
-    console.log(`[Dashboard] Fetched ${appsData.length} applications for job: ${selectedJobId}`);
+
 
   } catch (err: any) {
     console.error('Error loading dashboard data:', err);

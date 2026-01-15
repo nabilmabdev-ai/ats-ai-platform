@@ -1,98 +1,125 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# ATS Backend Core
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+The core business logic and API layer for the HT Recruitment OS. Built with **NestJS 11**, it handles data persistence (PostgreSQL/Prisma), asynchronous tasks (BullMQ), and authentication.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## 🛠️ Tech Stack
 
-## Description
+*   **Framework**: NestJS 11
+*   **Database**: PostgreSQL 16
+*   **ORM**: Prisma
+*   **Queue**: BullMQ (Redis)
+*   **Search Integration**: MeiliSearch (Keyword) & Milvus (Vector - via Backend AI) 
+*   **Scheduled Tasks**: `@nestjs/schedule`
+*   **Logging**: `NestJS Logger` (No `console.log` in production)
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## 🏗️ Modular Architecture
 
-## Project setup
+The application is structured into domain-specific modules:
 
-```bash
-$ npm install
+*   **`auth/`**: JWT-based authentication and guards.
+*   **`candidates/`**: Candidate profiles, deduplication logic, CRUD, and Resume Upload handling.
+*   **`applications/`**: Managing the application lifecycle (Applied -> Hired).
+    *   *Includes transactional integrity to prevent data inconsistency during creation.*
+*   **`jobs/`**: Job descriptions, templates, and publishing.
+*   **`deduplication/`**: ScanService and logic for identifying and resolving duplicate candidates.
+*   **`offers/`**: Offer generation, approval workflows, and sending.
+*   **`interviews/`**: Scheduling logic and calendar integration.
+*   **`search/`**: Unified search service (RRF algorithm) communicating with MeiliSearch and Backend AI.
+*   **`csv-import/`**: Bulk candidate import processing.
+
+## 🛡️ Stability & Standards
+
+### API Response Format
+All list endpoints conform to a standardized envelope:
+```json
+{
+  "data": [...],
+  "meta": { "total": 100, "page": 1, "limit": 10 }
+}
 ```
 
-## Compile and run the project
+### Global Exception Filter
+All unhandled exceptions are caught by `HttpExceptionFilter` which:
+1.  Logs the error stack trace.
+2.  Returns a standardized JSON error response to the client.
+
+## 🏃‍♂️ Getting Started
+
+### Prerequisites
+*   Node.js v20+
+*   Docker (Postgres, Redis, Milvus, MeiliSearch running)
+
+### Installation
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+cd apps/backend-core
+npm install
 ```
 
-## Run tests
+### Configuration
+
+Setup `.env` file (copy from `.env.example`):
+
+```ini
+DATABASE_URL="postgresql://user:password@localhost:5432/ats_db"
+# Redis for BullMQ
+REDIS_HOST="localhost"
+REDIS_PORT="6379"
+
+# External Services
+AI_SERVICE_URL="http://localhost:8000"
+MEILI_HOST="http://localhost:7700"
+MEILI_KEY="masterKey"
+```
+
+### Database Setup
 
 ```bash
-# unit tests
-$ npm run test
+# Apply migrations
+npx prisma migrate dev
 
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+# Generate Prisma Client
+npx prisma generate
 ```
 
-## Deployment
+### ⚡ Seeding Data
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+This is critical for setting up the environment.
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+# Main Seed (Runs all sub-seeds)
+npm run seed
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Individual seed scripts:
+*   `npm run seed:foundation` - Users (Recruiters), Roles, Default Settings.
+*   `npm run seed:jobs` - Sample Jobs and Templates.
+*   `npm run seed:candidates` - Fake candidates with resume text.
+*   `npm run seed:ops` - Interviews and Draft Offers.
 
-## Resources
+## 🚀 Running the Server
 
-Check out a few resources that may come in handy when working with NestJS:
+```bash
+# Development (Watch mode)
+npm run start:dev
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+# Production build
+npm run build
+npm run start:prod
+```
 
-## Support
+## 🧪 Testing
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+```bash
+# Unit tests
+npm run test
 
-## Stay in touch
+# E2E tests
+npm run test:e2e
+```
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+## 🔄 Async Jobs (BullMQ)
 
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+*   **`pdf-parsing`**: Extracts text from uploaded resumes.
+*   **`vectorization`**: Sends text to Backend AI for embedding creation.
+*   **`email-notifications`**: Sends transactional emails (Offer letters, Interview invites).

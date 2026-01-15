@@ -4,12 +4,13 @@ import { useState, useEffect } from 'react';
 
 interface Offer {
   id: string;
-  status: 'DRAFT' | 'SENT' | 'ACCEPTED' | 'DECLINED' | 'FAILED';
+  status: 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'SENT' | 'ACCEPTED' | 'DECLINED' | 'FAILED';
   salary: number;
   equity: string;
   startDate: string;
   offerLetter: string;
   generatedOfferUrl?: string;
+  createdById?: string; // To check if current user is creator
 }
 
 interface DocumentTemplate {
@@ -122,6 +123,52 @@ export default function OfferManager({ applicationId, candidateName, jobTitle, o
         if (onStatusChange) onStatusChange();
       }
     } catch (e) { console.error(e); }
+  };
+
+  // 6. Request Approval
+  const handleRequestApproval = async () => {
+    if (!offer) return;
+    setIsSubmitting(true);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/offers/${offer.id}/request-approval`, {
+        method: 'POST'
+      });
+      if (res.ok) {
+        setOffer({ ...offer, status: 'PENDING_APPROVAL' });
+        alert('Approval requested! ⏳');
+      }
+    } catch (e) { console.error(e); }
+    finally { setIsSubmitting(false); }
+  };
+
+  // 7. Approve Offer (Admin)
+  const handleApprove = async () => {
+    if (!offer) return;
+    setIsSubmitting(true);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/offers/${offer.id}/approve`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          // Note: In a real app, we'd attach the token here.
+          // For now, the backend uses cookie/session or assumes auth if gated.
+          // But our backend uses @UseGuards(JwtAuthGuard) which expects Bearer token.
+          // The frontend Fetch utils usually handle this. 
+          // Since OfferManager uses raw fetch, I should check if I need to add Authorization header.
+          // Looking at other fetches in this file, they lack headers. 
+          // This implies maybe cookies are used or Auth is missing on other endpoints?
+          // Wait, 'offers' endpoint in controller IS guarded now.
+          // If 'fetch' is just window.fetch, it won't send token unless I add it.
+          // I should add Authorization header.
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+        }
+      });
+      if (res.ok) {
+        setOffer({ ...offer, status: 'APPROVED' });
+        alert('Offer Approved! ✅');
+      }
+    } catch (e) { console.error(e); }
+    finally { setIsSubmitting(false); }
   };
 
   // 5. Regenerate PDF
@@ -260,6 +307,20 @@ export default function OfferManager({ applicationId, candidateName, jobTitle, o
         </div>
       )}
 
+      {offer.status === 'PENDING_APPROVAL' && (
+        <div className="bg-amber-100 text-amber-800 px-6 py-3 text-sm font-bold flex justify-between items-center border-b border-amber-200">
+          <span>⏳ Pending Approval</span>
+          <span className="text-xs uppercase tracking-wide opacity-80">Review in Progress</span>
+        </div>
+      )}
+
+      {offer.status === 'APPROVED' && (
+        <div className="bg-emerald-100 text-emerald-800 px-6 py-3 text-sm font-bold flex justify-between items-center border-b border-emerald-200">
+          <span>✅ Offer Approved</span>
+          <span className="text-xs uppercase tracking-wide opacity-80">Ready to Send</span>
+        </div>
+      )}
+
       <div className="p-6 flex-1 flex flex-col">
         <div className="flex justify-between items-start mb-6">
           <div>
@@ -310,11 +371,6 @@ export default function OfferManager({ applicationId, candidateName, jobTitle, o
           <div className="flex justify-end gap-3">
             {offer.status === 'DRAFT' && (
               <>
-                {/* Show Regenerate if stuck in Draft without URL for a long time, or just allow it always if no URL?
-                    Actually, if status is DRAFT and no URL, it might be generating.
-                    But if it failed silently before we added FAILED status, user is stuck.
-                    So let's adding a small "Regenerate" link if no URL.
-                */}
                 {!offer.generatedOfferUrl && (
                   <button
                     onClick={handleRegenerate}
@@ -326,13 +382,33 @@ export default function OfferManager({ applicationId, candidateName, jobTitle, o
                 )}
 
                 <button
-                  onClick={handleSend}
+                  onClick={handleRequestApproval}
                   disabled={isSubmitting || !offer.generatedOfferUrl}
-                  className="bg-[var(--color-primary)] text-white px-6 py-2 rounded-[var(--radius-md)] hover:bg-blue-700 font-bold shadow-[var(--shadow-sm)] disabled:opacity-50 transition-all text-sm"
+                  className="bg-black text-white px-6 py-2 rounded-[var(--radius-md)] hover:bg-gray-800 font-bold shadow-[var(--shadow-sm)] disabled:opacity-50 transition-all text-sm"
                 >
-                  {isSubmitting ? 'Sending...' : '📧 Send to Candidate'}
+                  {isSubmitting ? 'Requesting...' : 'Request Approval'}
                 </button>
               </>
+            )}
+
+            {offer.status === 'PENDING_APPROVAL' && (
+              <button
+                onClick={handleApprove}
+                disabled={isSubmitting}
+                className="bg-amber-500 text-white px-6 py-2 rounded-[var(--radius-md)] hover:bg-amber-600 font-bold shadow-[var(--shadow-sm)] disabled:opacity-50 transition-all text-sm"
+              >
+                {isSubmitting ? 'Approving...' : 'Approve (Admin)'}
+              </button>
+            )}
+
+            {offer.status === 'APPROVED' && (
+              <button
+                onClick={handleSend}
+                disabled={isSubmitting || !offer.generatedOfferUrl}
+                className="bg-[var(--color-primary)] text-white px-6 py-2 rounded-[var(--radius-md)] hover:bg-blue-700 font-bold shadow-[var(--shadow-sm)] disabled:opacity-50 transition-all text-sm"
+              >
+                {isSubmitting ? 'Sending...' : '📧 Send to Candidate'}
+              </button>
             )}
 
             {offer.status === 'SENT' && (
